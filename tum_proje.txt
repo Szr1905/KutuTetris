@@ -1,0 +1,3177 @@
+import { useState, useEffect, useCallback } from "react";
+import MenuScreen from "./components/MenuScreen";
+import GameScreen from "./components/GameScreen";
+import ShopScreen from "./components/ShopScreen";
+import LeaderboardScreen from "./components/LeaderboardScreen";
+import MoreGamesScreen from "./components/MoreGamesScreen";
+import TicTacToeScreen from "./components/games/TicTacToeScreen";
+import BrickBreakerScreen from "./components/games/BrickBreakerScreen";
+import { getTheme, THEMES } from "./lib/themes";
+import {
+  getProfile,
+  updateProfile,
+  submitScore,
+  type PlayerProfile,
+} from "./lib/supabase";
+
+type Screen = "menu" | "game" | "shop" | "leaderboard" | "more-games" | "tic-tac-toe" | "brick-breaker";
+
+export default function App() {
+  const [screen, setScreen] = useState<Screen>("menu");
+  const [profile, setProfile] = useState<PlayerProfile | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [ownedThemes, setOwnedThemes] = useState<string[]>(["classic"]);
+  const [editingName, setEditingName] = useState(false);
+  const [tempName, setTempName] = useState("");
+
+  const currentTheme = profile ? getTheme(profile.current_theme) : THEMES[0];
+
+  // Load profile
+  useEffect(() => {
+    (async () => {
+      const p = await getProfile();
+      if (p) {
+        setProfile(p);
+        // Load owned themes from localStorage
+        const stored = localStorage.getItem("ownedThemes");
+        if (stored) {
+          try {
+            const parsed = JSON.parse(stored) as string[];
+            setOwnedThemes(parsed.includes("classic") ? parsed : ["classic", ...parsed.filter((t) => t !== "classic")]);
+          } catch {
+            setOwnedThemes(["classic"]);
+          }
+        }
+      }
+      setLoading(false);
+    })();
+  }, []);
+
+  const handlePlay = () => setScreen("game");
+
+  const handleGameOver = useCallback(
+    async (score: number, coinsEarned: number) => {
+      if (!profile) return;
+      const newCoins = profile.coins + coinsEarned;
+      const newBest = Math.max(profile.best_score, score);
+
+      await updateProfile({
+        coins: newCoins,
+        best_score: newBest,
+      });
+
+      await submitScore(profile.player_name, score, coinsEarned);
+
+      setProfile({ ...profile, coins: newCoins, best_score: newBest });
+      setScreen("leaderboard");
+    },
+    [profile]
+  );
+
+  const handleBuy = useCallback(
+    (themeId: string, cost: number) => {
+      if (!profile || profile.coins < cost) return;
+      const newCoins = profile.coins - cost;
+      const newOwned = [...ownedThemes, themeId];
+
+      setProfile({ ...profile, coins: newCoins });
+      setOwnedThemes(newOwned);
+      localStorage.setItem("ownedThemes", JSON.stringify(newOwned));
+      updateProfile({ coins: newCoins, current_theme: themeId });
+    },
+    [profile, ownedThemes]
+  );
+
+  const handleEquip = useCallback(
+    (themeId: string) => {
+      if (!profile || !ownedThemes.includes(themeId)) return;
+      setProfile({ ...profile, current_theme: themeId });
+      updateProfile({ current_theme: themeId });
+    },
+    [profile, ownedThemes]
+  );
+
+  const handleBuyCoins = useCallback(
+    (amount: number) => {
+      if (!profile) return;
+      const newCoins = profile.coins + amount;
+      setProfile({ ...profile, coins: newCoins });
+      updateProfile({ coins: newCoins });
+    },
+    [profile]
+  );
+
+  const handleSaveName = useCallback(() => {
+    if (!profile || !tempName.trim()) {
+      setEditingName(false);
+      return;
+    }
+    const name = tempName.trim().slice(0, 20);
+    setProfile({ ...profile, player_name: name });
+    updateProfile({ player_name: name });
+    setEditingName(false);
+  }, [profile, tempName]);
+
+  const handleMiniGameScore = useCallback(
+    (score: number) => {
+      if (!profile) return;
+      const newCoins = profile.coins + score;
+      setProfile({ ...profile, coins: newCoins });
+      updateProfile({ coins: newCoins });
+    },
+    [profile]
+  );
+
+  if (loading) {
+    return (
+      <div
+        style={{
+          background: "#0f1525",
+          minHeight: "100vh",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          color: "#fff",
+          fontFamily: "'Nunito', sans-serif",
+          fontSize: 20,
+          fontWeight: 700,
+        }}
+      >
+        Yükleniyor...
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {screen === "menu" && (
+        <MenuScreen
+          theme={currentTheme}
+          playerName={profile?.player_name || "Player"}
+          coins={profile?.coins || 0}
+          bestScore={profile?.best_score || 0}
+          onPlay={handlePlay}
+          onShop={() => setScreen("shop")}
+          onLeaderboard={() => setScreen("leaderboard")}
+          onMoreGames={() => setScreen("more-games")}
+          onEditName={() => {
+            setTempName(profile?.player_name || "");
+            setEditingName(true);
+          }}
+        />
+      )}
+
+      {screen === "game" && (
+        <GameScreen
+          theme={currentTheme}
+          bestScore={profile?.best_score || 0}
+          onExit={() => setScreen("menu")}
+          onGameOver={handleGameOver}
+        />
+      )}
+
+      {screen === "shop" && (
+        <ShopScreen
+          theme={currentTheme}
+          coins={profile?.coins || 0}
+          ownedThemes={ownedThemes}
+          currentThemeId={profile?.current_theme || "classic"}
+          onBuy={handleBuy}
+          onEquip={handleEquip}
+          onBuyCoins={handleBuyCoins}
+          onBack={() => setScreen("menu")}
+        />
+      )}
+
+      {screen === "leaderboard" && (
+        <LeaderboardScreen
+          theme={currentTheme}
+          playerBestScore={profile?.best_score || 0}
+          playerName={profile?.player_name || "Player"}
+          onBack={() => setScreen("menu")}
+        />
+      )}
+
+      {screen === "more-games" && (
+        <MoreGamesScreen
+          theme={currentTheme}
+          onBack={() => setScreen("menu")}
+          onSelectGame={(gameId) => setScreen(gameId as Screen)}
+        />
+      )}
+
+      {screen === "tic-tac-toe" && (
+        <TicTacToeScreen
+          theme={currentTheme}
+          onBack={() => setScreen("more-games")}
+          onScore={handleMiniGameScore}
+        />
+      )}
+
+      {screen === "brick-breaker" && (
+        <BrickBreakerScreen
+          theme={currentTheme}
+          onBack={() => setScreen("more-games")}
+          onScore={handleMiniGameScore}
+        />
+      )}
+
+      {/* Name edit modal */}
+      {editingName && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.7)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+          }}
+          onClick={() => setEditingName(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: currentTheme.headerBg,
+              borderRadius: 20,
+              padding: "32px 36px",
+              textAlign: "center",
+              maxWidth: 320,
+              width: "90%",
+            }}
+          >
+            <div style={{ fontSize: 32, marginBottom: 12 }}>✏️</div>
+            <h3 style={{ fontSize: 20, fontWeight: 800, margin: "0 0 20px 0", color: currentTheme.textColor }}>
+              İsim Değiştir
+            </h3>
+            <input
+              type="text"
+              value={tempName}
+              onChange={(e) => setTempName(e.target.value)}
+              maxLength={20}
+              autoFocus
+              onKeyDown={(e) => e.key === "Enter" && handleSaveName()}
+              style={{
+                width: "100%",
+                background: "rgba(255,255,255,0.08)",
+                border: `2px solid ${currentTheme.accent}55`,
+                borderRadius: 12,
+                padding: "12px 16px",
+                color: currentTheme.textColor,
+                fontSize: 18,
+                fontWeight: 700,
+                fontFamily: "'Nunito', sans-serif",
+                outline: "none",
+                boxSizing: "border-box",
+                marginBottom: 20,
+                textAlign: "center",
+              }}
+              placeholder="İsmin..."
+            />
+            <div style={{ display: "flex", gap: 10 }}>
+              <button
+                onClick={() => setEditingName(false)}
+                style={{
+                  flex: 1,
+                  background: "rgba(255,255,255,0.1)",
+                  color: currentTheme.textColor,
+                  border: "none",
+                  borderRadius: 12,
+                  padding: "12px 16px",
+                  fontWeight: 700,
+                  fontSize: 15,
+                  cursor: "pointer",
+                  fontFamily: "'Nunito', sans-serif",
+                }}
+              >
+                İptal
+              </button>
+              <button
+                onClick={handleSaveName}
+                style={{
+                  flex: 1,
+                  background: currentTheme.accent,
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: 12,
+                  padding: "12px 16px",
+                  fontWeight: 800,
+                  fontSize: 15,
+                  cursor: "pointer",
+                  fontFamily: "'Nunito', sans-serif",
+                }}
+              >
+                Kaydet
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+import { useState, useEffect, useCallback, useRef } from "react";
+import type { Theme } from "../lib/themes";
+import {
+  GRID_SIZE,
+  type Shape,
+  createEmptyGrid,
+  generateThreeShapes,
+  canPlaceShape,
+  placeShape,
+  clearLines,
+  canPlaceAnywhere,
+  hasAnyValidMove,
+  calculateScore,
+  COLORS,
+} from "../lib/gameLogic";
+
+type GameScreenProps = {
+  theme: Theme;
+  bestScore: number;
+  onExit: () => void;
+  onGameOver: (score: number, coinsEarned: number) => void;
+};
+
+type DragState = {
+  shapeIndex: number;
+  shape: Shape;
+  pointerX: number;
+  pointerY: number;
+  isTouch: boolean;
+};
+
+export default function GameScreen({ theme, bestScore, onExit, onGameOver }: GameScreenProps) {
+  const [grid, setGrid] = useState<number[][]>(createEmptyGrid);
+  const [shapes, setShapes] = useState<(Shape | null)[]>(generateThreeShapes);
+  const [score, setScore] = useState(0);
+  const [combo, setCombo] = useState(0);
+  const [coinsEarned, setCoinsEarned] = useState(0);
+  const [drag, setDrag] = useState<DragState | null>(null);
+  const [hoverRow, setHoverRow] = useState(-1);
+  const [hoverCol, setHoverCol] = useState(-1);
+  const [clearingRows, setClearingRows] = useState<number[]>([]);
+  const [clearingCols, setClearingCols] = useState<number[]>([]);
+  const [isClearing, setIsClearing] = useState(false);
+  const [gameOver, setGameOver] = useState(false);
+  const [displayScore, setDisplayScore] = useState(0);
+  const [recentClear, setRecentClear] = useState<{ lines: number; combo: number } | null>(null);
+  const [shake, setShake] = useState(false);
+  const [bgPhase, setBgPhase] = useState(0);
+
+  const gridRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<DragState | null>(null);
+  const gridStateRef = useRef<number[][]>(grid);
+
+  const cellSize = 38;
+  const gap = 1;
+  const totalCellSize = cellSize + gap;
+
+  // Lift offset: how far above the finger the shape appears (so finger doesn't cover it)
+  const touchLiftOffset = 80;
+
+  useEffect(() => {
+    gridStateRef.current = grid;
+  }, [grid]);
+
+  useEffect(() => {
+    dragRef.current = drag;
+  }, [drag]);
+
+  // Animate score counting
+  useEffect(() => {
+    if (displayScore === score) return;
+    const diff = score - displayScore;
+    const step = Math.max(1, Math.ceil(Math.abs(diff) / 8));
+    const timer = setTimeout(() => {
+      setDisplayScore((prev) => prev + (diff > 0 ? step : -step));
+    }, 16);
+    return () => clearTimeout(timer);
+  }, [displayScore, score]);
+
+  // Check game over
+  const checkGameOver = useCallback(
+    (currentGrid: number[][], currentShapes: (Shape | null)[]) => {
+      if (currentShapes.every((s) => s === null)) {
+        const newShapes = generateThreeShapes();
+        setShapes(newShapes);
+        if (!hasAnyValidMove(currentGrid, newShapes)) {
+          setGameOver(true);
+        }
+      } else {
+        const activeShapes = currentShapes.filter((s): s is Shape => s !== null);
+        if (!hasAnyValidMove(currentGrid, activeShapes)) {
+          setGameOver(true);
+        }
+      }
+    },
+    []
+  );
+
+  const handlePlacement = useCallback(
+    (shapeIndex: number, shape: Shape, row: number, col: number) => {
+      const currentGrid = gridStateRef.current;
+      if (!canPlaceShape(currentGrid, shape, row, col)) return;
+
+      let placedCells = 0;
+      for (let r = 0; r < shape.height; r++) {
+        for (let c = 0; c < shape.width; c++) {
+          if (shape.cells[r][c]) placedCells++;
+        }
+      }
+
+      const newGrid = placeShape(currentGrid, shape, row, col);
+      const { newGrid: clearedGrid, linesCleared, clearedRows, clearedCols } =
+        clearLines(newGrid);
+
+      const newCombo = linesCleared > 0 ? combo + 1 : 0;
+      const { points, coins } = calculateScore(placedCells, linesCleared, newCombo);
+
+      setScore((s) => s + points);
+      setCoinsEarned((c) => c + coins);
+      setCombo(newCombo);
+
+      if (linesCleared > 0) {
+        const comboTexts = ["", "Nice!", "Great!", "Awesome!", "Amazing!", "Incredible!", "Unbelievable!", "Legendary!"];
+        const text = comboTexts[Math.min(newCombo, comboTexts.length - 1)] || "Legendary!";
+        setRecentClear({ lines: linesCleared, combo: newCombo });
+        setShake(true);
+        setTimeout(() => setShake(false), 250);
+        setTimeout(() => setRecentClear(null), 1000);
+      }
+
+      // Shift background every 200 points
+      const newTotalScore = score + points;
+      setBgPhase(Math.floor(newTotalScore / 200));
+
+      const newShapes = [...shapes];
+      newShapes[shapeIndex] = null;
+      setShapes(newShapes);
+
+      if (clearedRows.length > 0 || clearedCols.length > 0) {
+        setIsClearing(true);
+        setClearingRows(clearedRows);
+        setClearingCols(clearedCols);
+        setGrid(newGrid);
+        setTimeout(() => {
+          setGrid(clearedGrid);
+          setClearingRows([]);
+          setClearingCols([]);
+          setIsClearing(false);
+          checkGameOver(clearedGrid, newShapes);
+        }, 180);
+      } else {
+        setGrid(newGrid);
+        checkGameOver(newGrid, newShapes);
+      }
+    },
+    [shapes, combo, checkGameOver]
+  );
+
+  // Find the best snap position: the valid placement closest to the pointer's target
+  const findSnapPosition = useCallback(
+    (shape: Shape, targetRow: number, targetCol: number): { row: number; col: number } | null => {
+      const currentGrid = gridStateRef.current;
+
+      // First try the exact target
+      if (canPlaceShape(currentGrid, shape, targetRow, targetCol)) {
+        return { row: targetRow, col: targetCol };
+      }
+
+      // Search in expanding rings for the nearest valid position
+      const maxRadius = GRID_SIZE;
+      for (let radius = 1; radius <= maxRadius; radius++) {
+        let best: { row: number; col: number; dist: number } | null = null;
+
+        for (let dr = -radius; dr <= radius; dr++) {
+          for (let dc = -radius; dc <= radius; dc++) {
+            // Only check the ring edges
+            if (Math.abs(dr) !== radius && Math.abs(dc) !== radius) continue;
+
+            const r = targetRow + dr;
+            const c = targetCol + dc;
+            if (canPlaceShape(currentGrid, shape, r, c)) {
+              const dist = dr * dr + dc * dc;
+              if (!best || dist < best.dist) {
+                best = { row: r, col: c, dist };
+              }
+            }
+          }
+        }
+
+        if (best) return { row: best.row, col: best.col };
+      }
+
+      return null;
+    },
+    []
+  );
+
+  // Compute the target row/col from pointer position
+  const computeTargetFromPointer = useCallback(
+    (pointerX: number, pointerY: number, shape: Shape, isTouch: boolean) => {
+      if (!gridRef.current) return { row: -1, col: -1 };
+
+      const gridRect = gridRef.current.getBoundingClientRect();
+      const gridLeft = gridRect.left;
+      const gridTop = gridRect.top;
+
+      // For touch: the shape is lifted above the finger, so the shape's top-left
+      // is at (pointerX - shapeWidth/2, pointerY - touchLiftOffset)
+      // For mouse: shape's top-left is at (pointerX - shapeWidth/2, pointerY - shapeHeight/2)
+      const shapePixelW = shape.width * totalCellSize - gap;
+      const shapePixelH = shape.height * totalCellSize - gap;
+
+      let shapeLeft: number;
+      let shapeTop: number;
+
+      if (isTouch) {
+        // Shape is centered horizontally on finger, lifted above
+        shapeLeft = pointerX - shapePixelW / 2;
+        shapeTop = pointerY - touchLiftOffset - shapePixelH;
+      } else {
+        // Mouse: shape is centered on cursor
+        shapeLeft = pointerX - shapePixelW / 2;
+        shapeTop = pointerY - shapePixelH / 2;
+      }
+
+      const relX = shapeLeft - gridLeft;
+      const relY = shapeTop - gridTop;
+
+      const col = Math.round(relX / totalCellSize);
+      const row = Math.round(relY / totalCellSize);
+
+      return { row, col };
+    },
+    [totalCellSize, gap, touchLiftOffset]
+  );
+
+  // Pointer-based drag
+  const handlePointerDown = (
+    e: React.PointerEvent,
+    shapeIndex: number,
+    shape: Shape
+  ) => {
+    if (isClearing || gameOver || shapes[shapeIndex] === null) return;
+    e.preventDefault();
+
+    const isTouch = e.pointerType === "touch";
+
+    setDrag({
+      shapeIndex,
+      shape,
+      pointerX: e.clientX,
+      pointerY: e.clientY,
+      isTouch,
+    });
+    dragRef.current = {
+      shapeIndex,
+      shape,
+      pointerX: e.clientX,
+      pointerY: e.clientY,
+      isTouch,
+    };
+
+    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    const currentDrag = dragRef.current;
+    if (!currentDrag) return;
+    e.preventDefault();
+
+    const newDrag = { ...currentDrag, pointerX: e.clientX, pointerY: e.clientY };
+    setDrag(newDrag);
+    dragRef.current = newDrag;
+
+    const { row, col } = computeTargetFromPointer(
+      e.clientX,
+      e.clientY,
+      currentDrag.shape,
+      currentDrag.isTouch
+    );
+
+    const snap = findSnapPosition(currentDrag.shape, row, col);
+    if (snap) {
+      setHoverRow(snap.row);
+      setHoverCol(snap.col);
+    } else {
+      setHoverRow(-1);
+      setHoverCol(-1);
+    }
+  };
+
+  const handlePointerUp = (e: React.PointerEvent) => {
+    const currentDrag = dragRef.current;
+    if (!currentDrag) return;
+    e.preventDefault();
+
+    const { row, col } = computeTargetFromPointer(
+      e.clientX,
+      e.clientY,
+      currentDrag.shape,
+      currentDrag.isTouch
+    );
+
+    const snap = findSnapPosition(currentDrag.shape, row, col);
+    if (snap) {
+      handlePlacement(currentDrag.shapeIndex, currentDrag.shape, snap.row, snap.col);
+    }
+
+    setDrag(null);
+    dragRef.current = null;
+    setHoverRow(-1);
+    setHoverCol(-1);
+  };
+
+  const handleRestart = () => {
+    setGrid(createEmptyGrid());
+    gridStateRef.current = createEmptyGrid();
+    setShapes(generateThreeShapes());
+    setScore(0);
+    setDisplayScore(0);
+    setCombo(0);
+    setCoinsEarned(0);
+    setGameOver(false);
+    setRecentClear(null);
+    setBgPhase(0);
+  };
+
+  // Render preview overlay for snap position
+  const renderPreview = () => {
+    if (!drag || hoverRow < 0 || hoverCol < 0) return null;
+    const cells: React.ReactNode[] = [];
+    for (let r = 0; r < drag.shape.height; r++) {
+      for (let c = 0; c < drag.shape.width; c++) {
+        if (drag.shape.cells[r][c]) {
+          cells.push(
+            <div
+              key={`prev-${r}-${c}`}
+              style={{
+                position: "absolute",
+                left: (hoverCol + c) * totalCellSize,
+                top: (hoverRow + r) * totalCellSize,
+                width: cellSize,
+                height: cellSize,
+                background: drag.shape.color,
+                opacity: 0.45,
+                borderRadius: 6,
+                border: "2px solid rgba(255,255,255,0.7)",
+                boxSizing: "border-box",
+              }}
+            />
+          );
+        }
+      }
+    }
+    return <>{cells}</>;
+  };
+
+  // Compute drag ghost position
+  const getDragGhostStyle = (): React.CSSProperties => {
+    if (!drag) return { display: "none" };
+
+    const shapePixelW = drag.shape.width * totalCellSize - gap;
+    const shapePixelH = drag.shape.height * totalCellSize - gap;
+
+    let left: number;
+    let top: number;
+
+    if (drag.isTouch) {
+      // Centered on finger horizontally, lifted above finger
+      left = drag.pointerX - shapePixelW / 2;
+      top = drag.pointerY - touchLiftOffset - shapePixelH;
+    } else {
+      // Mouse: centered on cursor
+      left = drag.pointerX - shapePixelW / 2;
+      top = drag.pointerY - shapePixelH / 2;
+    }
+
+    return {
+      position: "fixed",
+      left,
+      top,
+      display: "grid",
+      gridTemplateColumns: `repeat(${drag.shape.width}, ${cellSize}px)`,
+      gridTemplateRows: `repeat(${drag.shape.height}, ${cellSize}px)`,
+      gap,
+      pointerEvents: "none",
+      zIndex: 1000,
+      transform: "scale(1.05)",
+      opacity: 0.92,
+    };
+  };
+
+  // Show valid placement indicator when not dragging
+  const showValidHint = (shape: Shape | null): boolean => {
+    if (!shape || drag) return false;
+    return canPlaceAnywhere(gridStateRef.current, shape);
+  };
+
+  return (
+    <div
+      onPointerMove={drag ? handlePointerMove : undefined}
+      onPointerUp={drag ? handlePointerUp : undefined}
+      onPointerCancel={drag ? handlePointerUp : undefined}
+      style={{
+        background: `hsl(${(theme.bgColor.startsWith('#') ? 220 : 220) + bgPhase * 8 % 360}, 30%, ${8 + Math.min(bgPhase * 0.5, 8)}%)`,
+        minHeight: "100vh",
+        color: theme.textColor,
+        fontFamily: "'Nunito', sans-serif",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        userSelect: "none",
+        WebkitUserSelect: "none",
+        touchAction: "none",
+        transition: "background 0.8s ease",
+        transform: shake ? "translate(2px, -2px)" : "translate(0, 0)",
+      }}
+    >
+      {/* Top bar */}
+      <div
+        style={{
+          width: "100%",
+          maxWidth: 460,
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          padding: "16px 20px",
+          boxSizing: "border-box",
+        }}
+      >
+        <button
+          onClick={onExit}
+          style={{
+            background: "rgba(255,255,255,0.1)",
+            border: "none",
+            borderRadius: 12,
+            padding: "10px 16px",
+            color: theme.textColor,
+            fontSize: 16,
+            fontFamily: "'Nunito', sans-serif",
+            fontWeight: 700,
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            transition: "background 0.2s",
+          }}
+        >
+          ← Menu
+        </button>
+        <div
+          style={{
+            background: "rgba(255,255,255,0.08)",
+            borderRadius: 14,
+            padding: "8px 24px",
+            textAlign: "center",
+            minWidth: 140,
+          }}
+        >
+          <div style={{ fontSize: 11, opacity: 0.6, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1 }}>
+            Score
+          </div>
+          <div
+            style={{
+              fontSize: 26,
+              fontWeight: 900,
+              fontFamily: "'Fredoka', sans-serif",
+              color: theme.accent,
+              lineHeight: 1.1,
+            }}
+          >
+            {displayScore}
+          </div>
+        </div>
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: 2,
+            minWidth: 72,
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
+              background: "rgba(255,255,255,0.08)",
+              borderRadius: 12,
+              padding: "6px 10px",
+              fontSize: 15,
+              fontWeight: 800,
+            }}
+          >            <span style={{ fontSize: 16 }}>👑</span>
+            {bestScore}
+          </div>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
+              background: "rgba(255,255,255,0.08)",
+              borderRadius: 12,
+              padding: "6px 10px",
+              fontSize: 15,
+              fontWeight: 800,
+            }}
+          >
+            <span style={{ fontSize: 16 }}>🪙</span>
+            {coinsEarned}
+          </div>
+        </div>
+      </div>
+
+      {/* Combo indicator - overlay so it doesn't shift the grid */}
+      {recentClear && (() => {
+        const comboTexts = ["", "Nice!", "Great!", "Awesome!", "Amazing!", "Incredible!", "Unbelievable!", "Legendary!"];
+        const text = comboTexts[Math.min(recentClear.combo, comboTexts.length - 1)] || "Legendary!";
+        const lineText = recentClear.lines > 1 ? `${recentClear.lines}x Lines! ` : "Line Clear! ";
+        return (
+          <div
+            style={{
+              position: "fixed",
+              top: "35%",
+              left: "50%",
+              transform: "translate(-50%, -50%)",
+              background: theme.accent,
+              color: "#fff",
+              borderRadius: 20,
+              padding: "10px 28px",
+              fontWeight: 900,
+              fontSize: 20,
+              fontFamily: "'Fredoka', sans-serif",
+              animation: "comboPop 0.2s ease",
+              boxShadow: `0 4px 24px ${theme.accent}88`,
+              zIndex: 1500,
+              pointerEvents: "none",
+              whiteSpace: "nowrap",
+              textAlign: "center",
+            }}
+          >
+            {lineText}
+            {recentClear.combo > 1 && (
+              <span style={{ fontSize: 24 }}>{text} Combo x{recentClear.combo}</span>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* Game grid */}
+      <div
+        ref={gridRef}
+        style={{
+          position: "relative",
+          background: theme.gridBg,
+          borderRadius: 16,
+          padding: gap,
+          display: "grid",
+          gridTemplateColumns: `repeat(${GRID_SIZE}, ${cellSize}px)`,
+          gridTemplateRows: `repeat(${GRID_SIZE}, ${cellSize}px)`,
+          gap,
+          boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
+        }}
+      >
+        {grid.map((row, r) =>
+          row.map((cell, c) => {
+            const isClearing =
+              clearingRows.includes(r) || clearingCols.includes(c);
+            const isHover =
+              hoverRow >= 0 &&
+              hoverCol >= 0 &&
+              drag &&
+              r >= hoverRow &&
+              r < hoverRow + drag.shape.height &&
+              c >= hoverCol &&
+              c < hoverCol + drag.shape.width &&
+              drag.shape.cells[r - hoverRow]?.[c - hoverCol];
+
+            return (
+              <div
+                key={`${r}-${c}`}
+                style={{
+                  width: cellSize,
+                  height: cellSize,
+                  background: cell
+                    ? isClearing
+                      ? "#ffffff"
+                      : COLORS[cell - 1] || COLORS[0]
+                    : isHover
+                      ? theme.accent + "33"
+                      : theme.cellEmpty,
+                  borderRadius: 4,
+                  transition: isClearing
+                    ? "transform 0.15s ease, opacity 0.15s ease"
+                    : "background 0.1s ease",
+                  transform: isClearing ? "scale(0.5) translateY(-20px)" : "scale(1)",
+                  opacity: isClearing ? 0.3 : 1,
+                  boxShadow: cell && !isClearing
+                    ? `inset 0 -3px 0 rgba(0,0,0,0.25), inset 0 2px 0 rgba(255,255,255,0.15)`
+                    : "none",
+                }}
+              />
+            );
+          })
+        )}
+        {renderPreview()}
+      </div>
+
+      {/* Shapes tray */}
+      <div
+        style={{
+          display: "flex",
+          gap: 16,
+          marginTop: 24,
+          padding: "16px 20px",
+          background: theme.headerBg,
+          borderRadius: 16,
+          width: "100%",
+          maxWidth: 460,
+          justifyContent: "center",
+          alignItems: "center",
+          minHeight: 100,
+        }}
+      >
+        {shapes.map((shape, i) => (
+          <div
+            key={i}
+            onPointerDown={
+              shape && !drag && !isClearing && !gameOver
+                ? (e) => handlePointerDown(e, i, shape)
+                : undefined
+            }
+            style={{
+              cursor: shape && !drag ? "grab" : "default",
+              opacity: !shape || (drag && drag.shapeIndex === i) ? 0.15 : 1,
+              padding: 10,
+              borderRadius: 12,
+              background: shape && !drag ? "rgba(255,255,255,0.05)" : "transparent",
+              transition: "opacity 0.2s, transform 0.2s",
+              transform: shape && !drag ? "scale(1)" : "scale(0.9)",
+            }}
+          >
+            {shape && (
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: `repeat(${shape.width}, ${cellSize - 8}px)`,
+                  gridTemplateRows: `repeat(${shape.height}, ${cellSize - 8}px)`,
+                  gap: 1,
+                }}
+              >
+                {shape.cells.map((row, r) =>
+                  row.map((filled, c) => (
+                    <div
+                      key={`${r}-${c}`}
+                      style={{
+                        width: cellSize - 8,
+                        height: cellSize - 8,
+                        background: filled ? shape.color : "transparent",
+                        borderRadius: 3,
+                        boxShadow: filled
+                          ? `inset 0 -3px 0 rgba(0,0,0,0.2), inset 0 2px 0 rgba(255,255,255,0.15)`
+                          : "none",
+                      }}
+                    />
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Dragging shape ghost */}
+      {drag && (
+        <div style={getDragGhostStyle()}>
+          {drag.shape.cells.map((row, r) =>
+            row.map((filled, c) => (
+              <div
+                key={`drag-${r}-${c}`}
+                style={{
+                  width: cellSize,
+                  height: cellSize,
+                  background: filled ? drag.shape.color : "transparent",
+                  borderRadius: 4,
+                  boxShadow: filled
+                    ? `inset 0 -3px 0 rgba(0,0,0,0.25), inset 0 2px 0 rgba(255,255,255,0.15)`
+                    : "none",
+                }}
+              />
+            ))
+          )}
+        </div>
+      )}
+
+      {/* Game over overlay */}
+      {gameOver && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.7)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 2000,
+            animation: "fadeIn 0.3s ease",
+          }}
+        >
+          <div
+            style={{
+              background: theme.headerBg,
+              borderRadius: 24,
+              padding: "40px 48px",
+              textAlign: "center",
+              maxWidth: 360,
+              width: "90%",
+              boxShadow: `0 20px 60px rgba(0,0,0,0.5)`,
+              animation: "gameOverRise 0.5s cubic-bezier(0.2, 0.8, 0.3, 1)",
+            }}
+          >
+            <div style={{ fontSize: 40, marginBottom: 8 }}>🎮</div>
+            <h2
+              style={{
+                fontSize: 28,
+                fontWeight: 900,
+                fontFamily: "'Fredoka', sans-serif",
+                margin: "0 0 8px 0",
+                color: theme.accent,
+              }}
+            >
+              Oyun Bitti!
+            </h2>
+            <div
+              style={{
+                fontSize: 16,
+                opacity: 0.7,
+                marginBottom: 24,
+              }}
+            >
+              Skorun
+            </div>
+            <div
+              style={{
+                fontSize: 48,
+                fontWeight: 900,
+                fontFamily: "'Fredoka', sans-serif",
+                color: theme.textColor,
+                marginBottom: 8,
+              }}
+            >
+              {score}
+            </div>
+            <div style={{ fontSize: 18, marginBottom: 28, fontWeight: 700 }}>
+              🪙 {coinsEarned} coin kazandın!
+            </div>
+            <div style={{ display: "flex", gap: 12, flexDirection: "column" }}>
+              <button
+                onClick={handleRestart}
+                style={{
+                  background: theme.accent,
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: 14,
+                  padding: "14px 32px",
+                  fontSize: 18,
+                  fontWeight: 800,
+                  fontFamily: "'Nunito', sans-serif",
+                  cursor: "pointer",
+                  transition: "transform 0.15s, box-shadow 0.15s",
+                }}
+              >
+                Tekrar Oyna
+              </button>
+              <button
+                onClick={() => onGameOver(score, coinsEarned)}
+                style={{
+                  background: "rgba(255,255,255,0.1)",
+                  color: theme.textColor,
+                  border: "none",
+                  borderRadius: 14,
+                  padding: "12px 32px",
+                  fontSize: 16,
+                  fontWeight: 700,
+                  fontFamily: "'Nunito', sans-serif",
+                  cursor: "pointer",
+                  transition: "background 0.2s",
+                }}
+              >
+                Skoru Kaydet
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+import { useState, useEffect } from "react";
+import type { Theme } from "../lib/themes";
+import type { LeaderboardEntry } from "../lib/supabase";
+import { getLeaderboard } from "../lib/supabase";
+
+type LeaderboardScreenProps = {
+  theme: Theme;
+  playerBestScore: number;
+  playerName: string;
+  onBack: () => void;
+};
+
+export default function LeaderboardScreen({
+  theme,
+  playerBestScore,
+  playerName,
+  onBack,
+}: LeaderboardScreenProps) {
+  const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      const data = await getLeaderboard(50);
+      setEntries(data);
+      setLoading(false);
+    })();
+  }, []);
+
+  const medals = ["🥇", "🥈", "🥉"];
+
+  return (
+    <div
+      style={{
+        background: theme.bgColor,
+        minHeight: "100vh",
+        color: theme.textColor,
+        fontFamily: "'Nunito', sans-serif",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        padding: 20,
+        boxSizing: "border-box",
+      }}
+    >
+      {/* Top bar */}
+      <div
+        style={{
+          width: "100%",
+          maxWidth: 460,
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: 24,
+        }}
+      >
+        <button
+          onClick={onBack}
+          style={{
+            background: "rgba(255,255,255,0.1)",
+            border: "none",
+            borderRadius: 12,
+            padding: "10px 16px",
+            color: theme.textColor,
+            fontSize: 16,
+            fontWeight: 700,
+            cursor: "pointer",
+          }}
+        >
+          ← Geri
+        </button>
+        <h2
+          style={{
+            fontSize: 24,
+            fontWeight: 700,
+            fontFamily: "'Fredoka', sans-serif",
+            margin: 0,
+          }}
+        >
+          🏆 Skor Tablosu
+        </h2>
+        <div style={{ width: 80 }} />
+      </div>
+
+      <div style={{ width: "100%", maxWidth: 460 }}>
+        {/* Player's best */}
+        <div
+          style={{
+            background: `${theme.accent}22`,
+            border: `1px solid ${theme.accent}55`,
+            borderRadius: 16,
+            padding: "16px 20px",
+            marginBottom: 20,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}
+        >
+          <div>
+            <div style={{ fontSize: 12, opacity: 0.7, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1 }}>
+              Senin Skorun
+            </div>
+            <div style={{ fontSize: 16, fontWeight: 800 }}>{playerName}</div>
+          </div>
+          <div style={{ fontSize: 28, fontWeight: 900, fontFamily: "'Fredoka', sans-serif", color: theme.accent }}>
+            {playerBestScore}
+          </div>
+        </div>
+
+        {loading ? (
+          <div style={{ textAlign: "center", padding: 40, opacity: 0.5, fontSize: 16 }}>
+            Yükleniyor...
+          </div>
+        ) : entries.length === 0 ? (
+          <div
+            style={{
+              textAlign: "center",
+              padding: 60,
+              opacity: 0.5,
+              fontSize: 16,
+            }}
+          >
+            Henüz skor yok. İlk oyunu oynayarak başla!
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {entries.map((entry, i) => (
+              <div
+                key={entry.id}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 12,
+                  background: theme.headerBg,
+                  borderRadius: 12,
+                  padding: "12px 16px",
+                  transition: "transform 0.15s",
+                }}
+              >
+                <div
+                  style={{
+                    width: 32,
+                    height: 32,
+                    borderRadius: 8,
+                    background: i < 3 ? `${theme.accent}33` : "rgba(255,255,255,0.05)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontWeight: 900,
+                    fontSize: 14,
+                    flexShrink: 0,
+                  }}
+                >
+                  {i < 3 ? medals[i] : i + 1}
+                </div>
+                <div style={{ flex: 1, textAlign: "left" }}>
+                  <div style={{ fontWeight: 800, fontSize: 15 }}>{entry.player_name}</div>
+                  <div style={{ fontSize: 12, opacity: 0.5 }}>
+                    🪙 {entry.coins} coin
+                  </div>
+                </div>
+                <div
+                  style={{
+                    fontSize: 20,
+                    fontWeight: 900,
+                    fontFamily: "'Fredoka', sans-serif",
+                    color: i < 3 ? theme.accent : theme.textColor,
+                  }}
+                >
+                  {entry.score}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+import type { Theme } from "../lib/themes";
+
+type MenuScreenProps = {
+  theme: Theme;
+  playerName: string;
+  coins: number;
+  bestScore: number;
+  onPlay: () => void;
+  onShop: () => void;
+  onLeaderboard: () => void;
+  onMoreGames: () => void;
+  onEditName: () => void;
+};
+
+export default function MenuScreen({
+  theme,
+  playerName,
+  coins,
+  bestScore,
+  onPlay,
+  onShop,
+  onLeaderboard,
+  onMoreGames,
+  onEditName,
+}: MenuScreenProps) {
+  return (
+    <div
+      style={{
+        background: theme.bgColor,
+        minHeight: "100vh",
+        color: theme.textColor,
+        fontFamily: "'Nunito', sans-serif",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 20,
+        boxSizing: "border-box",
+        position: "relative",
+        overflow: "hidden",
+      }}
+    >
+      {/* Animated background blocks */}
+      <div style={{ position: "absolute", inset: 0, pointerEvents: "none", overflow: "hidden" }}>
+        {[...Array(12)].map((_, i) => {
+          const colors = ["#ef4444", "#f97316", "#eab308", "#22c55e", "#06b6d4", "#3b82f6", "#ec4899"];
+          const left = (i * 37) % 100;
+          const top = (i * 53) % 100;
+          const size = 30 + (i % 4) * 15;
+          const delay = i * 0.3;
+          return (
+            <div
+              key={i}
+              style={{
+                position: "absolute",
+                left: `${left}%`,
+                top: `${top}%`,
+                width: size,
+                height: size,
+                background: colors[i % colors.length],
+                borderRadius: 8,
+                opacity: 0.06,
+                animation: `floatBlock ${8 + (i % 5)}s ease-in-out infinite`,
+                animationDelay: `${delay}s`,
+              }}
+            />
+          );
+        })}
+      </div>
+
+      <div style={{ position: "relative", zIndex: 1, width: "100%", maxWidth: 400, textAlign: "center" }}>
+        {/* Title */}
+        <div style={{ marginBottom: 8, animation: "titleBounce 0.6s ease" }}>
+          <h1
+            style={{
+              fontSize: 52,
+              fontWeight: 700,
+              fontFamily: "'Fredoka', sans-serif",
+              margin: 0,
+              lineHeight: 1,
+              background: `linear-gradient(135deg, ${theme.accent}, #ffffff)`,
+              WebkitBackgroundClip: "text",
+              WebkitTextFillColor: "transparent",
+              backgroundClip: "text",
+              letterSpacing: -1,
+            }}
+          >
+            Kutu
+          </h1>
+          <h1
+            style={{
+              fontSize: 52,
+              fontWeight: 700,
+              fontFamily: "'Fredoka', sans-serif",
+              margin: 0,
+              lineHeight: 1,
+              color: theme.accent,
+              letterSpacing: -1,
+            }}
+          >
+            Tetris
+          </h1>
+        </div>
+
+        {/* Decorative blocks */}
+        <div style={{ display: "flex", justifyContent: "center", gap: 6, marginBottom: 32 }}>
+          {["#ef4444", "#f97316", "#eab308", "#22c55e", "#3b82f6"].map((c, i) => (
+            <div
+              key={i}
+              style={{
+                width: 18,
+                height: 18,
+                background: c,
+                borderRadius: 4,
+                animation: `blockPulse 2s ease-in-out infinite`,
+                animationDelay: `${i * 0.15}s`,
+                boxShadow: `0 2px 8px ${c}66`,
+              }}
+            />
+          ))}
+        </div>
+
+        {/* Player card */}
+        <div
+          style={{
+            background: theme.headerBg,
+            borderRadius: 16,
+            padding: "16px 20px",
+            marginBottom: 24,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}
+        >
+          <div style={{ textAlign: "left" }}>
+            <div
+              style={{ fontSize: 13, opacity: 0.6, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1 }}
+            >
+              Oyuncu
+            </div>
+            <div
+              onClick={onEditName}
+              style={{
+                fontSize: 18,
+                fontWeight: 800,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+              }}
+            >
+              {playerName}
+              <span style={{ fontSize: 13, opacity: 0.5 }}>✏️</span>
+            </div>
+          </div>
+          <div style={{ textAlign: "right" }}>
+            <div
+              style={{ fontSize: 13, opacity: 0.6, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1 }}
+            >
+              En İyi
+            </div>
+            <div style={{ fontSize: 18, fontWeight: 800, color: theme.accent }}>
+              {bestScore}
+            </div>
+          </div>
+        </div>
+
+        {/* Coins display */}
+        <div
+          style={{
+            background: "rgba(255,255,255,0.06)",
+            borderRadius: 14,
+            padding: "10px 20px",
+            marginBottom: 28,
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 8,
+            fontWeight: 800,
+            fontSize: 18,
+          }}
+        >
+          🪙 {coins} Coin
+        </div>
+
+        {/* Play button */}
+        <button
+          onClick={onPlay}
+          style={{
+            width: "100%",
+            background: theme.accent,
+            color: "#fff",
+            border: "none",
+            borderRadius: 18,
+            padding: "18px 32px",
+            fontSize: 24,
+            fontWeight: 800,
+            fontFamily: "'Fredoka', sans-serif",
+            cursor: "pointer",
+            marginBottom: 12,
+            transition: "transform 0.15s, box-shadow 0.15s",
+            boxShadow: `0 8px 24px ${theme.accent}44`,
+          }}
+          onMouseDown={(e) => (e.currentTarget.style.transform = "scale(0.97)")}
+          onMouseUp={(e) => (e.currentTarget.style.transform = "scale(1)")}
+          onMouseLeave={(e) => (e.currentTarget.style.transform = "scale(1)")}
+        >
+          ▶ Oyna
+        </button>
+
+        {/* Secondary buttons */}
+        <div style={{ display: "flex", gap: 12 }}>
+          <button
+            onClick={onShop}
+            style={{
+              flex: 1,
+              background: "rgba(255,255,255,0.08)",
+              color: theme.textColor,
+              border: "none",
+              borderRadius: 14,
+              padding: "14px 16px",
+              fontSize: 16,
+              fontWeight: 700,
+              fontFamily: "'Nunito', sans-serif",
+              cursor: "pointer",
+              transition: "background 0.2s, transform 0.15s",
+            }}
+            onMouseDown={(e) => (e.currentTarget.style.transform = "scale(0.97)")}
+            onMouseUp={(e) => (e.currentTarget.style.transform = "scale(1)")}
+            onMouseLeave={(e) => (e.currentTarget.style.transform = "scale(1)")}
+          >
+            🛒 Mağaza
+          </button>
+          <button
+            onClick={onLeaderboard}
+            style={{
+              flex: 1,
+              background: "rgba(255,255,255,0.08)",
+              color: theme.textColor,
+              border: "none",
+              borderRadius: 14,
+              padding: "14px 16px",
+              fontSize: 16,
+              fontWeight: 700,
+              fontFamily: "'Nunito', sans-serif",
+              cursor: "pointer",
+              transition: "background 0.2s, transform 0.15s",
+            }}
+            onMouseDown={(e) => (e.currentTarget.style.transform = "scale(0.97)")}
+            onMouseUp={(e) => (e.currentTarget.style.transform = "scale(1)")}
+            onMouseLeave={(e) => (e.currentTarget.style.transform = "scale(1)")}
+          >
+            🏆 Skor Tablosu
+          </button>
+        </div>
+
+        {/* More Games button */}
+        <button
+          onClick={onMoreGames}
+          style={{
+            width: "100%",
+            background: "rgba(255,255,255,0.06)",
+            color: theme.textColor,
+            border: "none",
+            borderRadius: 14,
+            padding: "14px 16px",
+            fontSize: 16,
+            fontWeight: 700,
+            fontFamily: "'Nunito', sans-serif",
+            cursor: "pointer",
+            marginTop: 12,
+            transition: "background 0.2s, transform 0.15s",
+          }}
+          onMouseDown={(e) => (e.currentTarget.style.transform = "scale(0.97)")}
+          onMouseUp={(e) => (e.currentTarget.style.transform = "scale(1)")}
+          onMouseLeave={(e) => (e.currentTarget.style.transform = "scale(1)")}
+        >
+          🎮 Diğer Oyunlar
+        </button>
+      </div>
+    </div>
+  );
+}
+import { useState } from "react";
+import type { Theme } from "../lib/themes";
+import { GAMES } from "../lib/games";
+
+type MoreGamesScreenProps = {
+  theme: Theme;
+  onBack: () => void;
+  onSelectGame: (gameId: string) => void;
+};
+
+const AVAILABLE_GAMES = ["tic-tac-toe", "brick-breaker"];
+
+export default function MoreGamesScreen({ theme, onBack, onSelectGame }: MoreGamesScreenProps) {
+  const [comingSoon, setComingSoon] = useState<string | null>(null);
+
+  const handleSelect = (gameId: string) => {
+    if (AVAILABLE_GAMES.includes(gameId)) {
+      onSelectGame(gameId);
+    } else {
+      setComingSoon(gameId);
+    }
+  };
+
+  return (
+    <div
+      style={{
+        background: theme.bgColor,
+        minHeight: "100vh",
+        color: theme.textColor,
+        fontFamily: "'Nunito', sans-serif",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        padding: 20,
+        boxSizing: "border-box",
+      }}
+    >
+      <div
+        style={{
+          width: "100%",
+          maxWidth: 460,
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: 24,
+        }}
+      >
+        <button
+          onClick={onBack}
+          style={{
+            background: "rgba(255,255,255,0.1)",
+            border: "none",
+            borderRadius: 12,
+            padding: "10px 16px",
+            color: theme.textColor,
+            fontSize: 16,
+            fontWeight: 700,
+            cursor: "pointer",
+            fontFamily: "'Nunito', sans-serif",
+          }}
+        >
+          ← Geri
+        </button>
+        <h2
+          style={{
+            fontSize: 24,
+            fontWeight: 700,
+            fontFamily: "'Fredoka', sans-serif",
+            margin: 0,
+          }}
+        >
+          🎮 Diğer Oyunlar
+        </h2>
+        <div style={{ width: 70 }} />
+      </div>
+
+      <div
+        style={{
+          width: "100%",
+          maxWidth: 460,
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr",
+          gap: 14,
+        }}
+      >
+        {GAMES.map((game) => {
+          const available = AVAILABLE_GAMES.includes(game.id);
+          return (
+            <button
+              key={game.id}
+              onClick={() => handleSelect(game.id)}
+              style={{
+                background: theme.headerBg,
+                border: "none",
+                borderRadius: 16,
+                padding: 0,
+                cursor: "pointer",
+                overflow: "hidden",
+                textAlign: "left",
+                fontFamily: "'Nunito', sans-serif",
+                transition: "transform 0.15s",
+                display: "flex",
+                flexDirection: "column",
+                position: "relative",
+              }}
+              onMouseDown={(e) => (e.currentTarget.style.transform = "scale(0.96)")}
+              onMouseUp={(e) => (e.currentTarget.style.transform = "scale(1)")}
+              onMouseLeave={(e) => (e.currentTarget.style.transform = "scale(1)")}
+            >
+              <div
+                style={{
+                  background: `linear-gradient(135deg, ${game.color}, ${game.color}aa)`,
+                  padding: "28px 20px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 48,
+                  position: "relative",
+                }}
+              >
+                {game.icon}
+                {!available && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: 8,
+                      right: 8,
+                      background: "rgba(0,0,0,0.5)",
+                      borderRadius: 8,
+                      padding: "3px 10px",
+                      fontSize: 11,
+                      fontWeight: 700,
+                      color: "#fff",
+                    }}
+                  >
+                    Yakında
+                  </div>
+                )}
+              </div>
+              <div style={{ padding: "14px 16px" }}>
+                <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 4 }}>
+                  {game.name}
+                </div>
+                <div style={{ fontSize: 13, opacity: 0.6, fontWeight: 600 }}>
+                  {game.description}
+                </div>
+                <div
+                  style={{
+                    marginTop: 8,
+                    display: "inline-block",
+                    fontSize: 11,
+                    background: "rgba(255,255,255,0.1)",
+                    padding: "3px 10px",
+                    borderRadius: 8,
+                    fontWeight: 700,
+                  }}
+                >
+                  {game.difficulty}
+                </div>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      {comingSoon && (
+        <div
+          onClick={() => setComingSoon(null)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.7)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: theme.headerBg,
+              borderRadius: 20,
+              padding: "36px 40px",
+              textAlign: "center",
+              maxWidth: 300,
+              width: "90%",
+              animation: "gameOverPop 0.3s ease",
+            }}
+          >
+            <div style={{ fontSize: 40, marginBottom: 12 }}>🚧</div>
+            <h3
+              style={{
+                fontSize: 20,
+                fontWeight: 800,
+                margin: "0 0 8px 0",
+                fontFamily: "'Fredoka', sans-serif",
+                color: theme.accent,
+              }}
+            >
+              Yakında!
+            </h3>
+            <p style={{ opacity: 0.7, fontSize: 15, marginBottom: 24 }}>
+              {GAMES.find((g) => g.id === comingSoon)?.name} henüz hazir değil, ama üzerinde calişiyoruz!
+            </p>
+            <button
+              onClick={() => setComingSoon(null)}
+              style={{
+                background: theme.accent,
+                color: "#fff",
+                border: "none",
+                borderRadius: 12,
+                padding: "12px 32px",
+                fontWeight: 800,
+                fontSize: 15,
+                cursor: "pointer",
+                fontFamily: "'Nunito', sans-serif",
+              }}
+            >
+              Tamam
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+import { useState } from "react";
+import type { Theme } from "../lib/themes";
+import { THEMES, COIN_PACKS, getTheme } from "../lib/themes";
+
+type ShopScreenProps = {
+  theme: Theme;
+  coins: number;
+  ownedThemes: string[];
+  currentThemeId: string;
+  onBuy: (themeId: string, cost: number) => void;
+  onEquip: (themeId: string) => void;
+  onBuyCoins: (amount: number) => void;
+  onBack: () => void;
+};
+
+type Tab = "themes" | "coins";
+
+export default function ShopScreen({
+  theme,
+  coins,
+  ownedThemes,
+  currentThemeId,
+  onBuy,
+  onEquip,
+  onBuyCoins,
+  onBack,
+}: ShopScreenProps) {
+  const [showConfirm, setShowConfirm] = useState<string | null>(null);
+  const [confirmCoinPack, setConfirmCoinPack] = useState<string | null>(null);
+  const [tab, setTab] = useState<Tab>("themes");
+
+  const handleBuyCoins = (packId: string) => {
+    setConfirmCoinPack(packId);
+  };
+
+  const confirmCoinPurchase = () => {
+    if (!confirmCoinPack) return;
+    const pack = COIN_PACKS.find((p) => p.id === confirmCoinPack);
+    if (pack) {
+      onBuyCoins(pack.amount + pack.bonus);
+    }
+    setConfirmCoinPack(null);
+  };
+
+  const handleBuyTheme = (themeId: string) => {
+    setShowConfirm(themeId);
+  };
+
+  const confirmThemePurchase = () => {
+    if (!showConfirm) return;
+    const t = getTheme(showConfirm);
+    onBuy(t.id, t.price);
+    setShowConfirm(null);
+  };
+
+  return (
+    <div
+      style={{
+        background: theme.bgColor,
+        minHeight: "100vh",
+        color: theme.textColor,
+        fontFamily: "'Nunito', sans-serif",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        padding: 20,
+        boxSizing: "border-box",
+      }}
+    >
+      {/* Top bar */}
+      <div
+        style={{
+          width: "100%",
+          maxWidth: 460,
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: 20,
+        }}
+      >
+        <button
+          onClick={onBack}
+          style={{
+            background: "rgba(255,255,255,0.1)",
+            border: "none",
+            borderRadius: 12,
+            padding: "10px 16px",
+            color: theme.textColor,
+            fontSize: 16,
+            fontWeight: 700,
+            cursor: "pointer",
+            fontFamily: "'Nunito', sans-serif",
+          }}
+        >
+          ← Geri
+        </button>
+        <h2
+          style={{
+            fontSize: 24,
+            fontWeight: 700,
+            fontFamily: "'Fredoka', sans-serif",
+            margin: 0,
+          }}
+        >
+          🛒 Mağaza
+        </h2>
+        <div
+          style={{
+            background: "rgba(255,255,255,0.08)",
+            borderRadius: 12,
+            padding: "10px 14px",
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            fontWeight: 800,
+            fontSize: 16,
+          }}
+        >
+          🪙 {coins}
+        </div>
+      </div>
+
+      {/* Tab selector */}
+      <div
+        style={{
+          width: "100%",
+          maxWidth: 460,
+          display: "flex",
+          gap: 8,
+          marginBottom: 20,
+        }}
+      >
+        <button
+          onClick={() => setTab("themes")}
+          style={{
+            flex: 1,
+            background: tab === "themes" ? theme.accent : "rgba(255,255,255,0.08)",
+            color: tab === "themes" ? "#fff" : theme.textColor,
+            border: "none",
+            borderRadius: 12,
+            padding: "12px 16px",
+            fontWeight: 800,
+            fontSize: 16,
+            cursor: "pointer",
+            fontFamily: "'Nunito', sans-serif",
+            transition: "background 0.2s",
+          }}
+        >
+          🎨 Temalar
+        </button>
+        <button
+          onClick={() => setTab("coins")}
+          style={{
+            flex: 1,
+            background: tab === "coins" ? theme.accent : "rgba(255,255,255,0.08)",
+            color: tab === "coins" ? "#fff" : theme.textColor,
+            border: "none",
+            borderRadius: 12,
+            padding: "12px 16px",
+            fontWeight: 800,
+            fontSize: 16,
+            cursor: "pointer",
+            fontFamily: "'Nunito', sans-serif",
+            transition: "background 0.2s",
+          }}
+        >
+          🪙 Coin Paketleri
+        </button>
+      </div>
+
+      {/* Tab content */}
+      {tab === "themes" && (
+        <div style={{ width: "100%", maxWidth: 460 }}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr",
+              gap: 14,
+            }}
+          >
+            {THEMES.map((t) => {
+              const owned = ownedThemes.includes(t.id);
+              const equipped = currentThemeId === t.id;
+              const canAfford = coins >= t.price;
+
+              return (
+                <div
+                  key={t.id}
+                  style={{
+                    background: theme.headerBg,
+                    borderRadius: 16,
+                    overflow: "hidden",
+                    transition: "transform 0.2s",
+                    border: equipped ? `2px solid ${t.accent}` : "2px solid transparent",
+                  }}
+                >
+                  <div
+                    style={{
+                      background: t.bgColor,
+                      padding: 16,
+                      display: "grid",
+                      gridTemplateColumns: "repeat(4, 1fr)",
+                      gridTemplateRows: "repeat(3, 1fr)",
+                      gap: 3,
+                      height: 90,
+                    }}
+                  >
+                    {[...Array(12)].map((_, i) => {
+                      const filled = [0, 2, 4, 5, 7, 9, 11].includes(i);
+                      return (
+                        <div
+                          key={i}
+                          style={{
+                            background: filled
+                              ? ["#ef4444", "#f97316", "#22c55e", "#3b82f6", "#ec4899"][i % 5]
+                              : t.cellEmpty,
+                            borderRadius: 4,
+                          }}
+                        />
+                      );
+                    })}
+                  </div>
+
+                  <div style={{ padding: "12px 14px" }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        marginBottom: 8,
+                      }}
+                    >
+                      <span style={{ fontWeight: 800, fontSize: 15 }}>{t.name}</span>
+                      {t.premium && !owned && (
+                        <span
+                          style={{
+                            fontSize: 11,
+                            background: "rgba(251,191,36,0.2)",
+                            color: "#fbbf24",
+                            padding: "2px 8px",
+                            borderRadius: 8,
+                            fontWeight: 700,
+                          }}
+                        >
+                          Premium
+                        </span>
+                      )}
+                    </div>
+
+                    {equipped ? (
+                      <div
+                        style={{
+                          textAlign: "center",
+                          background: `${t.accent}22`,
+                          color: t.accent,
+                          borderRadius: 10,
+                          padding: "8px 12px",
+                          fontWeight: 800,
+                          fontSize: 14,
+                        }}
+                      >
+                        ✓ Aktif
+                      </div>
+                    ) : owned ? (
+                      <button
+                        onClick={() => onEquip(t.id)}
+                        style={{
+                          width: "100%",
+                          background: "rgba(255,255,255,0.1)",
+                          color: theme.textColor,
+                          border: "none",
+                          borderRadius: 10,
+                          padding: "8px 12px",
+                          fontWeight: 700,
+                          fontSize: 14,
+                          cursor: "pointer",
+                          fontFamily: "'Nunito', sans-serif",
+                        }}
+                      >
+                        Kullan
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => {
+                          if (canAfford) handleBuyTheme(t.id);
+                        }}
+                        disabled={!canAfford}
+                        style={{
+                          width: "100%",
+                          background: canAfford ? t.accent : "rgba(255,255,255,0.08)",
+                          color: canAfford ? "#fff" : "rgba(255,255,255,0.4)",
+                          border: "none",
+                          borderRadius: 10,
+                          padding: "8px 12px",
+                          fontWeight: 800,
+                          fontSize: 14,
+                          cursor: canAfford ? "pointer" : "not-allowed",
+                          fontFamily: "'Nunito', sans-serif",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          gap: 4,
+                        }}
+                      >
+                        🪙 {t.price}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div
+            style={{
+              marginTop: 24,
+              textAlign: "center",
+              opacity: 0.5,
+              fontSize: 14,
+            }}
+          >
+            Oynayarak coin kazan! Her satır temizlediğinde coin kazanırsın.
+          </div>
+        </div>
+      )}
+
+      {tab === "coins" && (
+        <div style={{ width: "100%", maxWidth: 460 }}>
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: 12,
+            }}
+          >
+            {COIN_PACKS.map((pack) => {
+              const total = pack.amount + pack.bonus;
+              return (
+                <div
+                  key={pack.id}
+                  style={{
+                    background: theme.headerBg,
+                    borderRadius: 16,
+                    padding: "18px 20px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    border: pack.isPremium
+                      ? `2px solid ${theme.accent}44`
+                      : "2px solid transparent",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+                    <div
+                      style={{
+                        width: 56,
+                        height: 56,
+                        borderRadius: 14,
+                        background: pack.isPremium
+                          ? `linear-gradient(135deg, ${theme.accent}, ${theme.accent}88)`
+                          : "rgba(255,255,255,0.08)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: 28,
+                        flexShrink: 0,
+                      }}
+                    >
+                      🪙
+                    </div>
+                    <div style={{ textAlign: "left" }}>
+                      <div
+                        style={{
+                          fontSize: 18,
+                          fontWeight: 800,
+                          marginBottom: 4,
+                        }}
+                      >
+                        {pack.name}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 15,
+                          fontWeight: 700,
+                          opacity: 0.8,
+                        }}
+                      >
+                        {pack.amount.toLocaleString("tr")} coin
+                        {pack.bonus > 0 && (
+                          <span
+                            style={{
+                              color: "#22c55e",
+                              marginLeft: 8,
+                              fontWeight: 800,
+                            }}
+                          >
+                            + {pack.bonus.toLocaleString("tr")} bonus!
+                          </span>
+                        )}
+                      </div>
+                      {pack.isPremium && (
+                        <span
+                          style={{
+                            display: "inline-block",
+                            marginTop: 4,
+                            fontSize: 11,
+                            background: "rgba(251,191,36,0.2)",
+                            color: "#fbbf24",
+                            padding: "2px 8px",
+                            borderRadius: 8,
+                            fontWeight: 700,
+                          }}
+                        >
+                          En İyi Değer
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleBuyCoins(pack.id)}
+                    style={{
+                      background: theme.accent,
+                      color: "#fff",
+                      border: "none",
+                      borderRadius: 12,
+                      padding: "12px 20px",
+                      fontWeight: 800,
+                      fontSize: 15,
+                      cursor: "pointer",
+                      fontFamily: "'Nunito', sans-serif",
+                      whiteSpace: "nowrap",
+                      transition: "transform 0.15s",
+                    }}
+                    onMouseDown={(e) => (e.currentTarget.style.transform = "scale(0.95)")}
+                    onMouseUp={(e) => (e.currentTarget.style.transform = "scale(1)")}
+                    onMouseLeave={(e) => (e.currentTarget.style.transform = "scale(1)")}
+                  >
+                    Al
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+          <div
+            style={{
+              marginTop: 24,
+              textAlign: "center",
+              opacity: 0.5,
+              fontSize: 14,
+            }}
+          >
+            Coin paketleriyle temaları daha hızlı aç!
+          </div>
+        </div>
+      )}
+
+      {/* Theme purchase confirmation modal */}
+      {showConfirm && (() => {
+        const t = getTheme(showConfirm);
+        return (
+          <div
+            style={{
+              position: "fixed",
+              inset: 0,
+              background: "rgba(0,0,0,0.7)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              zIndex: 1000,
+            }}
+            onClick={() => setShowConfirm(null)}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                background: theme.headerBg,
+                borderRadius: 20,
+                padding: "32px 36px",
+                textAlign: "center",
+                maxWidth: 320,
+                width: "90%",
+              }}
+            >
+              <div style={{ fontSize: 36, marginBottom: 12 }}>🎨</div>
+              <h3 style={{ fontSize: 22, fontWeight: 800, margin: "0 0 8px 0" }}>
+                {t.name} temasını satın al
+              </h3>
+              <p style={{ opacity: 0.7, fontSize: 15, marginBottom: 24 }}>
+                Bu temayı {t.price} coin karşılığında satın almak istiyor musun?
+              </p>
+              <div style={{ display: "flex", gap: 10 }}>
+                <button
+                  onClick={() => setShowConfirm(null)}
+                  style={{
+                    flex: 1,
+                    background: "rgba(255,255,255,0.1)",
+                    color: theme.textColor,
+                    border: "none",
+                    borderRadius: 12,
+                    padding: "12px 16px",
+                    fontWeight: 700,
+                    fontSize: 15,
+                    cursor: "pointer",
+                    fontFamily: "'Nunito', sans-serif",
+                  }}
+                >
+                  İptal
+                </button>
+                <button
+                  onClick={confirmThemePurchase}
+                  style={{
+                    flex: 1,
+                    background: t.accent,
+                    color: "#fff",
+                    border: "none",
+                    borderRadius: 12,
+                    padding: "12px 16px",
+                    fontWeight: 800,
+                    fontSize: 15,
+                    cursor: "pointer",
+                    fontFamily: "'Nunito', sans-serif",
+                  }}
+                >
+                  🪙 {t.price}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Coin purchase confirmation modal */}
+      {confirmCoinPack && (() => {
+        const pack = COIN_PACKS.find((p) => p.id === confirmCoinPack)!;
+        const total = pack.amount + pack.bonus;
+        return (
+          <div
+            style={{
+              position: "fixed",
+              inset: 0,
+              background: "rgba(0,0,0,0.7)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              zIndex: 1000,
+            }}
+            onClick={() => setConfirmCoinPack(null)}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                background: theme.headerBg,
+                borderRadius: 20,
+                padding: "32px 36px",
+                textAlign: "center",
+                maxWidth: 320,
+                width: "90%",
+              }}
+            >
+              <div style={{ fontSize: 36, marginBottom: 12 }}>🪙</div>
+              <h3 style={{ fontSize: 22, fontWeight: 800, margin: "0 0 8px 0" }}>
+                {pack.name}
+              </h3>
+              <p style={{ opacity: 0.7, fontSize: 15, marginBottom: 24 }}>
+                {total.toLocaleString("tr")} coin hesabına eklenecek. Onaylıyor musun?
+              </p>
+              <div style={{ display: "flex", gap: 10 }}>
+                <button
+                  onClick={() => setConfirmCoinPack(null)}
+                  style={{
+                    flex: 1,
+                    background: "rgba(255,255,255,0.1)",
+                    color: theme.textColor,
+                    border: "none",
+                    borderRadius: 12,
+                    padding: "12px 16px",
+                    fontWeight: 700,
+                    fontSize: 15,
+                    cursor: "pointer",
+                    fontFamily: "'Nunito', sans-serif",
+                  }}
+                >
+                  İptal
+                </button>
+                <button
+                  onClick={confirmCoinPurchase}
+                  style={{
+                    flex: 1,
+                    background: theme.accent,
+                    color: "#fff",
+                    border: "none",
+                    borderRadius: 12,
+                    padding: "12px 16px",
+                    fontWeight: 800,
+                    fontSize: 15,
+                    cursor: "pointer",
+                    fontFamily: "'Nunito', sans-serif",
+                  }}
+                >
+                  Onayla
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+    </div>
+  );
+}
+import { useState, useEffect, useRef, useCallback } from "react";
+import type { Theme } from "../../lib/themes";
+
+type BrickBreakerScreenProps = {
+  theme: Theme;
+  onBack: () => void;
+  onScore: (score: number) => void;
+};
+
+type Ball = { x: number; y: number; dx: number; dy: number };
+type Paddle = { x: number };
+
+const COLS = 8;
+const ROWS = 5;
+const PADDLE_W = 80;
+const PADDLE_H = 12;
+const BALL_R = 7;
+const BRICK_H = 22;
+const GAME_W = 320;
+const GAME_H = 420;
+
+const LEVELS: { colors: string[]; rows: number }[] = [
+  { colors: ["#ef4444", "#f97316"], rows: 3 },
+  { colors: ["#ef4444", "#f97316", "#eab308"], rows: 4 },
+  { colors: ["#ef4444", "#f97316", "#eab308", "#22c55e"], rows: 5 },
+  { colors: ["#f97316", "#eab308", "#22c55e", "#06b6d4"], rows: 5 },
+  { colors: ["#eab308", "#22c55e", "#06b6d4", "#3b82f6", "#ec4899"], rows: 5 },
+];
+
+export default function BrickBreakerScreen({ theme, onBack, onScore }: BrickBreakerScreenProps) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [level, setLevel] = useState(0);
+  const [score, setScore] = useState(0);
+  const [lives, setLives] = useState(3);
+  const [gameState, setGameState] = useState<"menu" | "playing" | "won" | "lost">("menu");
+  const stateRef = useRef({
+    ball: { x: GAME_W / 2, y: GAME_H - 60, dx: 3, dy: -3 } as Ball,
+    paddle: { x: GAME_W / 2 - PADDLE_W / 2 } as Paddle,
+    bricks: [] as { x: number; y: number; alive: boolean; color: string }[],
+    keys: { left: false, right: false, touchX: 0, hasTouch: false },
+    score: 0,
+    lives: 3,
+    level: 0,
+    running: false,
+  });
+
+  const initLevel = useCallback((lvl: number) => {
+    const config = LEVELS[Math.min(lvl, LEVELS.length - 1)];
+    const bricks: { x: number; y: number; alive: boolean; color: string }[] = [];
+    const brickW = (GAME_W - 20) / COLS;
+    for (let r = 0; r < config.rows; r++) {
+      for (let c = 0; c < COLS; c++) {
+        bricks.push({
+          x: 10 + c * brickW,
+          y: 30 + r * (BRICK_H + 3),
+          alive: true,
+          color: config.colors[r % config.colors.length],
+        });
+      }
+    }
+    const speed = 3 + lvl * 0.5;
+    stateRef.current.bricks = bricks;
+    stateRef.current.ball = { x: GAME_W / 2, y: GAME_H - 60, dx: speed, dy: -speed };
+    stateRef.current.paddle = { x: GAME_W / 2 - PADDLE_W / 2 };
+  }, []);
+
+  const startGame = useCallback(() => {
+    setLevel(0);
+    setScore(0);
+    setLives(3);
+    initLevel(0);
+    stateRef.current.score = 0;
+    stateRef.current.lives = 3;
+    stateRef.current.level = 0;
+    stateRef.current.running = true;
+    setGameState("playing");
+  }, [initLevel]);
+
+  const nextLevel = useCallback(() => {
+    const nextLvl = stateRef.current.level + 1;
+    if (nextLvl >= LEVELS.length) {
+      setGameState("won");
+      stateRef.current.running = false;
+      onScore(stateRef.current.score);
+      return;
+    }
+    setLevel(nextLvl);
+    stateRef.current.level = nextLvl;
+    initLevel(nextLvl);
+  }, [initLevel, onScore]);
+
+  // Game loop
+  useEffect(() => {
+    if (gameState !== "playing") return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    let rafId: number;
+    const s = stateRef.current;
+
+    const update = () => {
+      if (!s.running) return;
+
+      // Paddle movement
+      const paddleSpeed = 7;
+      if (s.keys.hasTouch) {
+        const target = s.keys.touchX - PADDLE_W / 2;
+        s.paddle.x += (target - s.paddle.x) * 0.3;
+      } else {
+        if (s.keys.left) s.paddle.x -= paddleSpeed;
+        if (s.keys.right) s.paddle.x += paddleSpeed;
+      }
+      s.paddle.x = Math.max(0, Math.min(GAME_W - PADDLE_W, s.paddle.x));
+
+      // Ball movement
+      s.ball.x += s.ball.dx;
+      s.ball.y += s.ball.dy;
+
+      // Wall collisions
+      if (s.ball.x < BALL_R || s.ball.x > GAME_W - BALL_R) s.ball.dx = -s.ball.dx;
+      if (s.ball.y < BALL_R) s.ball.dy = -s.ball.dy;
+
+      // Paddle collision
+      if (
+        s.ball.y > GAME_H - PADDLE_H - BALL_R &&
+        s.ball.y < GAME_H &&
+        s.ball.x > s.paddle.x &&
+        s.ball.x < s.paddle.x + PADDLE_W &&
+        s.ball.dy > 0
+      ) {
+        s.ball.dy = -Math.abs(s.ball.dy);
+        const hitPos = (s.ball.x - s.paddle.x) / PADDLE_W - 0.5;
+        s.ball.dx = hitPos * 6;
+      }
+
+      // Bottom = lose life
+      if (s.ball.y > GAME_H) {
+        s.lives--;
+        setLives(s.lives);
+        if (s.lives <= 0) {
+          s.running = false;
+          setGameState("lost");
+          onScore(s.score);
+          return;
+        }
+        s.ball = { x: GAME_W / 2, y: GAME_H - 60, dx: 3 + s.level * 0.5, dy: -(3 + s.level * 0.5) };
+        s.paddle = { x: GAME_W / 2 - PADDLE_W / 2 };
+      }
+
+      // Brick collisions
+      const brickW = (GAME_W - 20) / COLS;
+      for (const brick of s.bricks) {
+        if (!brick.alive) continue;
+        if (
+          s.ball.x > brick.x &&
+          s.ball.x < brick.x + brickW &&
+          s.ball.y > brick.y &&
+          s.ball.y < brick.y + BRICK_H
+        ) {
+          brick.alive = false;
+          s.ball.dy = -s.ball.dy;
+          s.score += 10;
+          setScore(s.score);
+          break;
+        }
+      }
+
+      // Check level complete
+      if (s.bricks.every((b) => !b.alive)) {
+        nextLevel();
+      }
+
+      // Render
+      ctx.fillStyle = theme.gridBg;
+      ctx.fillRect(0, 0, GAME_W, GAME_H);
+
+      // Bricks
+      for (const brick of s.bricks) {
+        if (!brick.alive) continue;
+        ctx.fillStyle = brick.color;
+        ctx.fillRect(brick.x, brick.y, brickW - 2, BRICK_H);
+      }
+
+      // Paddle
+      ctx.fillStyle = theme.accent;
+      ctx.fillRect(s.paddle.x, GAME_H - PADDLE_H - 4, PADDLE_W, PADDLE_H);
+
+      // Ball
+      ctx.fillStyle = "#ffffff";
+      ctx.beginPath();
+      ctx.arc(s.ball.x, s.ball.y, BALL_R, 0, Math.PI * 2);
+      ctx.fill();
+
+      rafId = requestAnimationFrame(update);
+    };
+
+    rafId = requestAnimationFrame(update);
+    return () => cancelAnimationFrame(rafId);
+  }, [gameState, theme, nextLevel]);
+
+  // Keyboard
+  useEffect(() => {
+    const down = (e: KeyboardEvent) => {
+      if (e.key === "ArrowLeft") stateRef.current.keys.left = true;
+      if (e.key === "ArrowRight") stateRef.current.keys.right = true;
+    };
+    const up = (e: KeyboardEvent) => {
+      if (e.key === "ArrowLeft") stateRef.current.keys.left = false;
+      if (e.key === "ArrowRight") stateRef.current.keys.right = false;
+    };
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup", up);
+    return () => {
+      window.removeEventListener("keydown", down);
+      window.removeEventListener("keyup", up);
+    };
+  }, []);
+
+  const handleTouch = (e: React.PointerEvent) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * GAME_W;
+    stateRef.current.keys.touchX = x;
+    stateRef.current.keys.hasTouch = true;
+  };
+
+  return (
+    <div
+      style={{
+        background: theme.bgColor,
+        minHeight: "100vh",
+        color: theme.textColor,
+        fontFamily: "'Nunito', sans-serif",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        padding: 20,
+        boxSizing: "border-box",
+      }}
+    >
+      <div
+        style={{
+          width: "100%",
+          maxWidth: 420,
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: 16,
+        }}
+      >
+        <button
+          onClick={onBack}
+          style={{
+            background: "rgba(255,255,255,0.1)",
+            border: "none",
+            borderRadius: 12,
+            padding: "10px 16px",
+            color: theme.textColor,
+            fontSize: 16,
+            fontWeight: 700,
+            cursor: "pointer",
+            fontFamily: "'Nunito', sans-serif",
+          }}
+        >
+          ← Geri
+        </button>
+        <h2 style={{ fontSize: 22, fontWeight: 700, fontFamily: "'Fredoka', sans-serif", margin: 0 }}>
+          🧱 Tuğla Kırıcı
+        </h2>
+        <div style={{ fontWeight: 800, fontSize: 16, color: theme.accent }}>
+          {score}p
+        </div>
+      </div>
+
+      {gameState === "playing" && (
+        <div
+          style={{
+            display: "flex",
+            gap: 16,
+            marginBottom: 12,
+            fontSize: 15,
+            fontWeight: 700,
+          }}
+        >
+          <span>Seviye {level + 1}/{LEVELS.length}</span>
+          <span>❤️ {lives}</span>
+        </div>
+      )}
+
+      {gameState === "menu" && (
+        <div style={{ textAlign: "center", marginTop: 40 }}>
+          <div style={{ fontSize: 60, marginBottom: 16 }}>🧱</div>
+          <h3
+            style={{
+              fontSize: 24,
+              fontWeight: 800,
+              fontFamily: "'Fredoka', sans-serif",
+              marginBottom: 8,
+            }}
+          >
+            Tuğla Kırıcı
+          </h3>
+          <p style={{ opacity: 0.7, fontSize: 15, marginBottom: 24, maxWidth: 300 }}>
+            Topu paddle ile sektir, tüm tuğlari kir! 5 seviye, her seviye daha hizli.
+          </p>
+          <button
+            onClick={startGame}
+            style={{
+              background: theme.accent,
+              color: "#fff",
+              border: "none",
+              borderRadius: 16,
+              padding: "18px 48px",
+              fontSize: 22,
+              fontWeight: 800,
+              fontFamily: "'Fredoka', sans-serif",
+              cursor: "pointer",
+              boxShadow: `0 8px 24px ${theme.accent}44`,
+            }}
+          >
+            ▶ Başla
+          </button>
+        </div>
+      )}
+
+      {gameState === "playing" && (
+        <canvas
+          ref={canvasRef}
+          width={GAME_W}
+          height={GAME_H}
+          onPointerMove={handleTouch}
+          onPointerDown={handleTouch}
+          style={{
+            borderRadius: 16,
+            touchAction: "none",
+            maxWidth: "100%",
+            height: "auto",
+            boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
+          }}
+        />
+      )}
+
+      {(gameState === "won" || gameState === "lost") && (
+        <div style={{ textAlign: "center", marginTop: 40 }}>
+          <div style={{ fontSize: 50, marginBottom: 12 }}>
+            {gameState === "won" ? "🎉" : "💀"}
+          </div>
+          <h3
+            style={{
+              fontSize: 26,
+              fontWeight: 800,
+              fontFamily: "'Fredoka', sans-serif",
+              marginBottom: 8,
+              color: gameState === "won" ? "#22c55e" : "#ef4444",
+            }}
+          >
+            {gameState === "won" ? "Tüm Seviyeler!" : "Oyun Bitti"}
+          </h3>
+          <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 24 }}>
+            Skor: {score}p
+          </div>
+          <button
+            onClick={startGame}
+            style={{
+              background: theme.accent,
+              color: "#fff",
+              border: "none",
+              borderRadius: 14,
+              padding: "14px 36px",
+              fontSize: 18,
+              fontWeight: 800,
+              fontFamily: "'Nunito', sans-serif",
+              cursor: "pointer",
+            }}
+          >
+            Tekrar Oyna
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+import { useState, useCallback } from "react";
+import type { Theme } from "../../lib/themes";
+
+type TicTacToeScreenProps = {
+  theme: Theme;
+  onBack: () => void;
+  onScore: (score: number) => void;
+};
+
+type Cell = "X" | "O" | null;
+type Difficulty = "easy" | "medium" | "hard";
+
+const WIN_LINES = [
+  [0, 1, 2], [3, 4, 5], [6, 7, 8],
+  [0, 3, 6], [1, 4, 7], [2, 5, 8],
+  [0, 4, 8], [2, 4, 6],
+];
+
+function checkWinner(board: Cell[]): { winner: Cell; line: number[] } | null {
+  for (const line of WIN_LINES) {
+    const [a, b, c] = line;
+    if (board[a] && board[a] === board[b] && board[a] === board[c]) {
+      return { winner: board[a], line };
+    }
+  }
+  return null;
+}
+
+function minimax(board: Cell[], isMax: boolean, depth: number): number {
+  const result = checkWinner(board);
+  if (result?.winner === "O") return 10 - depth;
+  if (result?.winner === "X") return depth - 10;
+  if (board.every((c) => c !== null)) return 0;
+
+  let best = isMax ? -Infinity : Infinity;
+  for (let i = 0; i < 9; i++) {
+    if (!board[i]) {
+      board[i] = isMax ? "O" : "X";
+      const score = minimax(board, !isMax, depth + 1);
+      board[i] = null;
+      best = isMax ? Math.max(best, score) : Math.min(best, score);
+    }
+  }
+  return best;
+}
+
+function getBestMove(board: Cell[]): number {
+  let bestScore = -Infinity;
+  let bestMove = -1;
+  for (let i = 0; i < 9; i++) {
+    if (!board[i]) {
+      board[i] = "O";
+      const score = minimax(board, false, 0);
+      board[i] = null;
+      if (score > bestScore) {
+        bestScore = score;
+        bestMove = i;
+      }
+    }
+  }
+  return bestMove;
+}
+
+function getRandomMove(board: Cell[]): number {
+  const empty = board.map((c, i) => (c ? -1 : i)).filter((i) => i >= 0);
+  return empty[Math.floor(Math.random() * empty.length)];
+}
+
+export default function TicTacToeScreen({ theme, onBack, onScore }: TicTacToeScreenProps) {
+  const [board, setBoard] = useState<Cell[]>(Array(9).fill(null));
+  const [xTurn, setXTurn] = useState(true);
+  const [difficulty, setDifficulty] = useState<Difficulty>("medium");
+  const [scores, setScores] = useState({ wins: 0, losses: 0, draws: 0 });
+  const [result, setResult] = useState<{ winner: Cell; line: number[] } | null>(null);
+  const [gameStarted, setGameStarted] = useState(false);
+
+  const makeAiMove = useCallback((currentBoard: Cell[]) => {
+    const empty = currentBoard.filter((c) => c === null).length;
+    if (empty === 0) return;
+
+    let move: number;
+    if (difficulty === "easy") {
+      move = getRandomMove(currentBoard);
+    } else if (difficulty === "medium") {
+      // 50% optimal, 50% random
+      move = Math.random() < 0.5 ? getBestMove(currentBoard) : getRandomMove(currentBoard);
+    } else {
+      move = getBestMove(currentBoard);
+    }
+
+    const newBoard = [...currentBoard];
+    newBoard[move] = "O";
+    setBoard(newBoard);
+
+    const winResult = checkWinner(newBoard);
+    if (winResult) {
+      setResult(winResult);
+      if (winResult.winner === "O") {
+        setScores((s) => ({ ...s, losses: s.losses + 1 }));
+      } else {
+        setScores((s) => ({ ...s, draws: s.draws + 1 }));
+      }
+    } else {
+      setXTurn(true);
+    }
+  }, [difficulty]);
+
+  const handleClick = (index: number) => {
+    if (board[index] || result || !xTurn || !gameStarted) return;
+
+    const newBoard = [...board];
+    newBoard[index] = "X";
+    setBoard(newBoard);
+
+    const winResult = checkWinner(newBoard);
+    if (winResult) {
+      setResult(winResult);
+      setScores((s) => ({ ...s, wins: s.wins + 1 }));
+      onScore(10);
+    } else if (newBoard.every((c) => c !== null)) {
+      setResult({ winner: null, line: [] });
+      setScores((s) => ({ ...s, draws: s.draws + 1 }));
+    } else {
+      setXTurn(false);
+      setTimeout(() => makeAiMove(newBoard), 300);
+    }
+  };
+
+  const resetGame = () => {
+    setBoard(Array(9).fill(null));
+    setXTurn(true);
+    setResult(null);
+    setGameStarted(true);
+  };
+
+  const totalScore = scores.wins * 10;
+
+  return (
+    <div
+      style={{
+        background: theme.bgColor,
+        minHeight: "100vh",
+        color: theme.textColor,
+        fontFamily: "'Nunito', sans-serif",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        padding: 20,
+        boxSizing: "border-box",
+      }}
+    >
+      <div
+        style={{
+          width: "100%",
+          maxWidth: 420,
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: 20,
+        }}
+      >
+        <button
+          onClick={onBack}
+          style={{
+            background: "rgba(255,255,255,0.1)",
+            border: "none",
+            borderRadius: 12,
+            padding: "10px 16px",
+            color: theme.textColor,
+            fontSize: 16,
+            fontWeight: 700,
+            cursor: "pointer",
+            fontFamily: "'Nunito', sans-serif",
+          }}
+        >
+          ← Geri
+        </button>
+        <h2 style={{ fontSize: 22, fontWeight: 700, fontFamily: "'Fredoka', sans-serif", margin: 0 }}>
+          ⭕ Tic Tac Toe
+        </h2>
+        <div style={{ fontWeight: 800, fontSize: 16, color: theme.accent }}>
+          {totalScore}p
+        </div>
+      </div>
+
+      {/* Score row */}
+      <div
+        style={{
+          display: "flex",
+          gap: 10,
+          marginBottom: 20,
+          width: "100%",
+          maxWidth: 420,
+        }}
+      >
+        {[
+          { label: "Kazan", value: scores.wins, color: "#22c55e" },
+          { label: "Berabere", value: scores.draws, color: "#fbbf24" },
+          { label: "Kaybet", value: scores.losses, color: "#ef4444" },
+        ].map((s) => (
+          <div
+            key={s.label}
+            style={{
+              flex: 1,
+              background: theme.headerBg,
+              borderRadius: 12,
+              padding: "10px 8px",
+              textAlign: "center",
+            }}
+          >
+            <div style={{ fontSize: 12, opacity: 0.6, fontWeight: 600 }}>{s.label}</div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: s.color }}>{s.value}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Difficulty selector */}
+      {!gameStarted && (
+        <div style={{ marginBottom: 20, width: "100%", maxWidth: 420 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, opacity: 0.7, marginBottom: 8, textAlign: "center" }}>
+            Zorluk Seviyesi
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            {([
+              { id: "easy", label: "Kolay" },
+              { id: "medium", label: "Orta" },
+              { id: "hard", label: "Zor" },
+            ] as { id: Difficulty; label: string }[]).map((d) => (
+              <button
+                key={d.id}
+                onClick={() => setDifficulty(d.id)}
+                style={{
+                  flex: 1,
+                  background: difficulty === d.id ? theme.accent : "rgba(255,255,255,0.08)",
+                  color: difficulty === d.id ? "#fff" : theme.textColor,
+                  border: "none",
+                  borderRadius: 12,
+                  padding: "12px 8px",
+                  fontWeight: 800,
+                  fontSize: 15,
+                  cursor: "pointer",
+                  fontFamily: "'Nunito', sans-serif",
+                  transition: "background 0.2s",
+                }}
+              >
+                {d.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {!gameStarted ? (
+        <button
+          onClick={resetGame}
+          style={{
+            background: theme.accent,
+            color: "#fff",
+            border: "none",
+            borderRadius: 16,
+            padding: "18px 48px",
+            fontSize: 22,
+            fontWeight: 800,
+            fontFamily: "'Fredoka', sans-serif",
+            cursor: "pointer",
+            boxShadow: `0 8px 24px ${theme.accent}44`,
+          }}
+        >
+          ▶ Başla
+        </button>
+      ) : (
+        <>
+          {/* Turn indicator */}
+          <div
+            style={{
+              marginBottom: 16,
+              fontSize: 16,
+              fontWeight: 700,
+              opacity: result ? 0 : 0.8,
+            }}
+          >
+            {result ? "" : xTurn ? "Senin siran (X)" : "Bilgisayar düsünüyor..."}
+          </div>
+
+          {/* Board */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(3, 1fr)",
+              gap: 6,
+              width: "min(90vw, 300px)",
+            }}
+          >
+            {board.map((cell, i) => {
+              const isWinCell = result?.line.includes(i);
+              return (
+                <button
+                  key={i}
+                  onClick={() => handleClick(i)}
+                  disabled={!xTurn || !!cell || !!result}
+                  style={{
+                    aspectRatio: "1",
+                    background: isWinCell ? `${theme.accent}44` : theme.gridBg,
+                    border: `2px solid ${isWinCell ? theme.accent : "transparent"}`,
+                    borderRadius: 12,
+                    fontSize: 48,
+                    fontWeight: 900,
+                    fontFamily: "'Fredoka', sans-serif",
+                    color: cell === "X" ? theme.accent : "#ef4444",
+                    cursor: cell || result || !xTurn ? "default" : "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    transition: "background 0.2s",
+                  }}
+                >
+                  {cell}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Result */}
+          {result && (
+            <div style={{ marginTop: 24, textAlign: "center" }}>
+              <div
+                style={{
+                  fontSize: 28,
+                  fontWeight: 900,
+                  fontFamily: "'Fredoka', sans-serif",
+                  color: result.winner === "X" ? "#22c55e" : result.winner === "O" ? "#ef4444" : theme.accent,
+                  marginBottom: 16,
+                  animation: "comboPop 0.3s ease",
+                }}
+              >
+                {result.winner === "X" ? "🎉 Kazandin!" : result.winner === "O" ? "😢 Kaybettin" : "🤝 Berabere"}
+              </div>
+              <button
+                onClick={resetGame}
+                style={{
+                  background: theme.accent,
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: 14,
+                  padding: "14px 36px",
+                  fontSize: 18,
+                  fontWeight: 800,
+                  fontFamily: "'Nunito', sans-serif",
+                  cursor: "pointer",
+                }}
+              >
+                Tekrar Oyna
+              </button>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+{
+  "name": "block-blast",
+  "private": true,
+  "version": "2.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.5",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "typescript": "^5.5.4",
+    "vite": "^5.4.2",
+    "vite-plugin-pwa": "^1.3.0"
+  }
+}
