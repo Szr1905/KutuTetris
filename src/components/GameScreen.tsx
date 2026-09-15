@@ -22,7 +22,12 @@ type GameScreenProps = {
   soundEnabled: boolean;
   vibrationEnabled: boolean;
   onExit: () => void;
-  onGameOver: (score: number, coinsEarned: number, levelCompleted: boolean, stats: { maxCombo: number; maxMultiClear: number; blocksPlaced: number }) => void;
+  onGameOver: (
+    score: number,
+    coinsEarned: number,
+    levelCompleted: boolean,
+    stats: { maxCombo: number; maxMultiClear: number; blocksPlaced: number }
+  ) => void;
 };
 
 type DragState = {
@@ -35,24 +40,311 @@ type DragState = {
   startY: number;
 };
 
-export default function GameScreen({ theme, bestScore, adventureLevel, mode, soundEnabled, vibrationEnabled, onExit, onGameOver }: GameScreenProps) {
-  const isAdventure = mode === "adventure";
-  // Play start sound on mount
+type LEDParticle = {
+  id: number;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  color: string;
+  size: number;
+  rotation: number;
+  vRot: number;
+  type?: "crystal" | "neon" | "firework" | "butterfly" | "square";
+  life?: number;
+};
+
+type FloatingScore = {
+  id: number;
+  points: number;
+  x: number;
+  y: number;
+};
+
+const BACKGROUND_GRADIENTS = [
+  "linear-gradient(180deg, #1e3c72 0%, #2a5298 100%)",
+  "linear-gradient(180deg, #0f2027 0%, #203a43 50%, #2c5364 100%)",
+  "linear-gradient(180deg, #373b44 0%, #4286f4 100%)",
+  "linear-gradient(180deg, #1a2a6c 0%, #b21f1f 50%, #fdbb2d 100%)",
+  "linear-gradient(180deg, #2b5876 0%, #4e4376 100%)",
+  "linear-gradient(180deg, #000428 0%, #004e92 100%)",
+  "linear-gradient(180deg, #4b6cb7 0%, #182848 100%)",
+];
+
+const ADVANCED_SHAPES: Shape[] = [];
+
+// Ekranda çıkacak Türkçe övgü kelimeleri
+const PRAISE_WORDS = ["Woov!", "Süper!", "Harika!", "İlginç!", "Muhteşem!", "Vov!"];
+
+const isPlusShape = (shape: Shape) => {
+  if (!shape || shape.width !== 3 || shape.height !== 3) return false;
+  const c = shape.cells;
+  return (
+    Boolean(c[1][1]) &&
+    Boolean(c[0][1]) &&
+    Boolean(c[1][0]) &&
+    Boolean(c[1][2]) &&
+    Boolean(c[2][1]) &&
+    !c[0][0] &&
+    !c[0][2] &&
+    !c[2][0] &&
+    !c[2][2]
+  );
+};
+
+const isTargetShape = (shape: Shape): boolean => {
+  if (!shape) return false;
+  return isPlusShape(shape);
+};
+
+const getShapeCellCount = (shape: Shape): number => {
+  if (!shape || !shape.cells) return 0;
+  let count = 0;
+  for (let sr = 0; sr < shape.height; sr++) {
+    for (let sc = 0; sc < shape.width; sc++) {
+      if (shape.cells[sr][sc]) count++;
+    }
+  }
+  return count;
+};
+
+// Z, C, X ve 1x3 merdiven/çapraz blok tespiti
+const isZCXOrStair = (s: Shape): boolean => {
+  if (!s || !s.cells) return false;
+  const count = getShapeCellCount(s);
+  const w = s.width;
+  const h = s.height;
+  const c = s.cells;
+
+  // X / Cross veya 3x3 karmaşık desenler
+  if (w === 3 && h === 3) {
+    if (count === 5 && c[1][1] && (c[0][1] && c[2][1] && c[1][0] && c[1][2])) return true; // '+' / X şekli
+    if (count === 5 && c[1][1] && (c[0][0] && c[0][2] && c[2][0] && c[2][2])) return true; // Çapraz X
+    if ((c[0][0] && c[1][1] && c[2][2]) || (c[0][2] && c[1][1] && c[2][0])) return true; // 3x3 Merdiven
+  }
+
+  // Z / S Blokları (2x3 veya 3x2, 4 kareli Z düzeni)
+  if ((w === 3 && h === 2) || (w === 2 && h === 3)) {
+    if (count === 4) {
+      if (w === 3 && h === 2) {
+        if ((c[0][0] && c[0][1] && c[1][1] && c[1][2]) || (c[1][0] && c[1][1] && c[0][1] && c[0][2])) return true;
+      }
+      if (w === 2 && h === 3) {
+        if ((c[0][1] && c[1][1] && c[1][0] && c[2][0]) || (c[0][0] && c[1][0] && c[1][1] && c[2][1])) return true;
+      }
+    }
+  }
+
+  // C Şekli (3x3 veya 2x3 içbükey bloklar)
+  if (count === 5) {
+    if (w === 3 && h === 3) {
+      if (c[0][0] && c[0][1] && c[0][2] && c[1][0] && c[2][0] && c[2][1] && c[2][2] && !c[1][1] && !c[1][2]) return true;
+      if (c[0][0] && c[0][1] && c[0][2] && c[1][2] && c[2][0] && c[2][1] && c[2][2] && !c[1][1] && !c[1][0]) return true;
+    }
+  }
+
+  // 1x3 Merdiven / Çapraz adımlı Blok
+  if (count === 3 && w >= 2 && h >= 2) {
+    if ((c[0][0] && c[1][1] && c[2]?.[2]) || (c[0]?.[2] && c[1][1] && c[2]?.[0])) return true;
+  }
+
+  return false;
+};
+
+// Seviye Bazlı Blok İzin Kuralları
+const isShapeAllowedForLevel = (s: Shape, level: number): boolean => {
+  if (!s) return false;
+  const count = getShapeCellCount(s);
+
+  // Seviye 1 & 2: Yalnızca 1x1, 1x2, 2x1 ve 2x2 (tam kare) bloklar
+  if (level < 3) {
+    if (s.width > 2 || s.height > 2) return false;
+    // 2x2 alanda 3 kare kaplayan L bloklarını Seviye 3'e aktarıyoruz
+    if (s.width === 2 && s.height === 2 && count !== 4) return false;
+    return count === 1 || count === 2 || count === 4;
+  }
+
+  // Seviye 3: L, T ve 3x3 gibi karmaşık bloklar dahil; Z, C, X ve merdiven blokları hariç
+  if (level === 3) {
+    if (s.width > 3 || s.height > 3) return false;
+    if (isZCXOrStair(s)) return false;
+    return true;
+  }
+
+  // Seviye 4 ve üzeri: Z, C, X, 1x3 merdiven blokları dahil tüm bloklar
+  return true;
+};
+
+// Masadaki mevcut blokları takip ederek satır/sütun patlamasını sağlayan değerlendirme
+const evaluateShapeForGrid = (shape: Shape, g: number[][]): number => {
+  let cellCount = 0;
+  for (let sr = 0; sr < shape.height; sr++) {
+    for (let sc = 0; sc < shape.width; sc++) {
+      if (shape.cells[sr][sc]) cellCount++;
+    }
+  }
+
+  let maxScore = -1;
+  for (let r = 0; r < GRID_SIZE; r++) {
+    for (let c = 0; c < GRID_SIZE; c++) {
+      if (canPlaceShape(g, shape, r, c)) {
+        const testGrid = placeShape(g, shape, r, c);
+        const { linesCleared } = clearLines(testGrid);
+
+        let fillBonus = 0;
+        let adjacencyBonus = 0;
+
+        for (let sr = 0; sr < shape.height; sr++) {
+          for (let sc = 0; sc < shape.width; sc++) {
+            if (shape.cells[sr][sc]) {
+              const gr = r + sr;
+              const gc = c + sc;
+              let rowFill = 0;
+              let colFill = 0;
+              for (let i = 0; i < GRID_SIZE; i++) {
+                if (g[gr][i]) rowFill++;
+                if (g[i][gc]) colFill++;
+              }
+              fillBonus += rowFill + colFill;
+
+              const neighbors = [
+                [gr - 1, gc],
+                [gr + 1, gc],
+                [gr, gc - 1],
+                [gr, gc + 1],
+              ];
+              for (const [nr, nc] of neighbors) {
+                if (nr >= 0 && nr < GRID_SIZE && nc >= 0 && nc < GRID_SIZE) {
+                  if (g[nr][nc]) adjacencyBonus += 120;
+                }
+              }
+            }
+          }
+        }
+
+        const simplicityBonus = (9 - cellCount) * 50;
+        const score = linesCleared * 100000 + fillBonus * 100 + adjacencyBonus * 150 + simplicityBonus + 1;
+        if (score > maxScore) {
+          maxScore = score;
+        }
+      }
+    }
+  }
+  return maxScore;
+};
+
+const getValidShapes = (level: number, currentGrid?: number[][]): Shape[] => {
+  const effectiveLevel = level;
+
+  const getRandomShapeWithAdvanced = (lvl: number): Shape => {
+    let shape: Shape;
+    let attempts = 0;
+    do {
+      if (lvl >= 8 && ADVANCED_SHAPES.length > 0 && Math.random() < 0.4) {
+        const advIndex = Math.floor(Math.random() * ADVANCED_SHAPES.length);
+        shape = ADVANCED_SHAPES[advIndex];
+      } else {
+        const generated = generateThreeShapes(lvl);
+        shape = generated[Math.floor(Math.random() * generated.length)];
+      }
+      attempts++;
+    } while (shape && (!isShapeAllowedForLevel(shape, lvl) || isPlusShape(shape)) && attempts < 80);
+    return shape;
+  };
+
+  if (!currentGrid) {
+    let valid: Shape[] = [];
+    let attempts = 0;
+    while (valid.length < 3 && attempts < 300) {
+      attempts++;
+      const shape = getRandomShapeWithAdvanced(effectiveLevel);
+      if (shape && !isPlusShape(shape) && isShapeAllowedForLevel(shape, effectiveLevel)) {
+        valid.push(shape);
+      }
+    }
+    while (valid.length < 3) {
+      const shape = getRandomShapeWithAdvanced(effectiveLevel);
+      if (shape && !isPlusShape(shape)) {
+        valid.push(shape);
+      }
+    }
+    return valid;
+  }
+
+  // Masadaki blok düzenini birebir takip ederek patlamaya en uygun şekilleri üretme
+  const candidates: { shape: Shape; score: number }[] = [];
+  let attempts = 0;
+  while (candidates.length < 250 && attempts < 700) {
+    attempts++;
+    const shape = getRandomShapeWithAdvanced(effectiveLevel);
+    if (shape && !isPlusShape(shape) && isShapeAllowedForLevel(shape, effectiveLevel)) {
+      const score = evaluateShapeForGrid(shape, currentGrid);
+      if (score > 0) {
+        candidates.push({ shape, score });
+      }
+    }
+  }
+
+  candidates.sort((a, b) => b.score - a.score);
+
+  const valid: Shape[] = [];
+  const usedTypes = new Set<string>();
+
+  for (const item of candidates) {
+    const shapeKey = JSON.stringify(item.shape.cells);
+    if (!usedTypes.has(shapeKey)) {
+      usedTypes.add(shapeKey);
+      valid.push(item.shape);
+      if (valid.length === 3) break;
+    }
+  }
+
+  while (valid.length < 3) {
+    const shape = getRandomShapeWithAdvanced(effectiveLevel);
+    if (shape && !isPlusShape(shape) && isShapeAllowedForLevel(shape, effectiveLevel) && canPlaceAnywhere(currentGrid, shape)) {
+      valid.push(shape);
+    }
+  }
+
+  return valid;
+};
+
+export default function GameScreen({
+  theme,
+  bestScore,
+  adventureLevel,
+  mode,
+  soundEnabled,
+  vibrationEnabled,
+  onExit,
+  onGameOver,
+}: GameScreenProps) {
   const startSoundPlayed = useRef(false);
+
+  const initialLevel = 1;
+  const [bgIndex, setBgIndex] = useState(0);
+  const [gameDifficulty, setGameDifficulty] = useState(initialLevel);
+  const [clearedCount, setClearedCount] = useState(0);
+
+  const [levelUpText, setLevelUpText] = useState<string | null>(null);
+  const [isSweepActive, setIsSweepActive] = useState(false);
+
   useEffect(() => {
     if (soundEnabled && !startSoundPlayed.current) {
       startSoundPlayed.current = true;
       const timer = setTimeout(() => playSoundRef.current("start"), 200);
       return () => clearTimeout(timer);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [soundEnabled]);
+
   const audioCtxRef = useRef<AudioContext | null>(null);
 
   const getCtx = useCallback((): AudioContext | null => {
     try {
       if (!audioCtxRef.current) {
-        audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+        audioCtxRef.current = new (
+          window.AudioContext || (window as any).webkitAudioContext
+        )();
       }
       if (audioCtxRef.current.state === "suspended") {
         audioCtxRef.current.resume();
@@ -63,242 +355,205 @@ export default function GameScreen({ theme, bestScore, adventureLevel, mode, sou
     }
   }, []);
 
-  // White-noise buffer for crash/break/shatter sounds
-  const noiseBufferRef = useRef<AudioBuffer | null>(null);
-  const getNoiseBuffer = useCallback((ctx: AudioContext): AudioBuffer => {
-    if (!noiseBufferRef.current) {
-      const len = ctx.sampleRate * 0.5;
-      const buf = ctx.createBuffer(1, len, ctx.sampleRate);
-      const data = buf.getChannelData(0);
-      for (let i = 0; i < len; i++) {
-        data[i] = Math.random() * 2 - 1;
-      }
-      noiseBufferRef.current = buf;
-    }
-    return noiseBufferRef.current;
-  }, []);
+  const playSound = useCallback(
+    (
+      type:
+        | "place"
+        | "clear"
+        | "multi"
+        | "combo"
+        | "gameover"
+        | "start"
+        | "grab"
+        | "levelup",
+      comboLevel: number = 0,
+      linesCleared: number = 0
+    ) => {
+      if (!soundEnabled) return;
 
-  const playSound = useCallback((type: "place" | "clear" | "multi" | "combo" | "gameover" | "start" | "grab" | "levelup", comboLevel: number = 0, linesCleared: number = 0) => {
-    if (!soundEnabled) return;
-    const ctx = getCtx();
-    if (!ctx) return;
-    const now = ctx.currentTime;
+      const ctx = getCtx();
+      if (!ctx) return;
+      const now = ctx.currentTime;
 
-    if (type === "place") {
-      // Wooden clack - like a backgammon stone hitting the board
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = "triangle";
-      osc.frequency.setValueAtTime(320, now);
-      osc.frequency.exponentialRampToValueAtTime(140, now + 0.04);
-      gain.gain.setValueAtTime(0.18, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(now);
-      osc.stop(now + 0.06);
-      // Short noise click for the "wood" texture
-      const noise = ctx.createBufferSource();
-      noise.buffer = getNoiseBuffer(ctx);
-      const nf = ctx.createBiquadFilter();
-      nf.type = "bandpass";
-      nf.frequency.value = 800;
-      nf.Q.value = 2;
-      const ng = ctx.createGain();
-      ng.gain.setValueAtTime(0.08, now);
-      ng.gain.exponentialRampToValueAtTime(0.001, now + 0.03);
-      noise.connect(nf);
-      nf.connect(ng);
-      ng.connect(ctx.destination);
-      noise.start(now);
-      noise.stop(now + 0.03);
-    } else if (type === "clear") {
-      // Wooden box drop - short thud + wood crack
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = "sine";
-      osc.frequency.setValueAtTime(200, now);
-      osc.frequency.exponentialRampToValueAtTime(60, now + 0.1);
-      gain.gain.setValueAtTime(0.2, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(now);
-      osc.stop(now + 0.12);
-      // Wood crack noise
-      const noise = ctx.createBufferSource();
-      noise.buffer = getNoiseBuffer(ctx);
-      const filter = ctx.createBiquadFilter();
-      filter.type = "bandpass";
-      filter.frequency.setValueAtTime(1200, now);
-      filter.frequency.exponentialRampToValueAtTime(400, now + 0.08);
-      filter.Q.value = 1.5;
-      const ng = ctx.createGain();
-      ng.gain.setValueAtTime(0.15, now);
-      ng.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
-      noise.connect(filter);
-      filter.connect(ng);
-      ng.connect(ctx.destination);
-      noise.start(now);
-      noise.stop(now + 0.1);
-    } else if (type === "multi") {
-      // Multiple wooden boxes dropping - bigger thud with cascade
-      for (let i = 0; i < Math.min(linesCleared, 4); i++) {
-        const delay = i * 0.06;
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = "sine";
-        osc.frequency.setValueAtTime(180 - i * 20, now + delay);
-        osc.frequency.exponentialRampToValueAtTime(50 - i * 5, now + delay + 0.1);
-        gain.gain.setValueAtTime(0.22, now + delay);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + delay + 0.13);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start(now + delay);
-        osc.stop(now + delay + 0.13);
-        // Wood crack
+      if (type === "grab") {
+        const bufferSize = Math.floor(ctx.sampleRate * 0.1);
+        const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+          data[i] = Math.random() * 2 - 1;
+        }
         const noise = ctx.createBufferSource();
-        noise.buffer = getNoiseBuffer(ctx);
+        noise.buffer = buffer;
+
         const filter = ctx.createBiquadFilter();
         filter.type = "bandpass";
-        filter.frequency.value = 1000 - i * 100;
-        filter.Q.value = 1.2;
-        const ng = ctx.createGain();
-        ng.gain.setValueAtTime(0.12, now + delay);
-        ng.gain.exponentialRampToValueAtTime(0.001, now + delay + 0.08);
+        filter.frequency.setValueAtTime(450, now);
+        filter.frequency.exponentialRampToValueAtTime(1200, now + 0.05);
+
+        const gain = ctx.createGain();
+        gain.gain.setValueAtTime(0.01, now);
+        gain.gain.linearRampToValueAtTime(0.15, now + 0.03);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+
         noise.connect(filter);
-        filter.connect(ng);
-        ng.connect(ctx.destination);
-        noise.start(now + delay);
-        noise.stop(now + delay + 0.08);
-      }
-    } else if (type === "combo") {
-      // Combo - whistle sound that rises in pitch with each combo level
-      const baseFreq = 500 + comboLevel * 120;
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = "sine";
-      osc.frequency.setValueAtTime(baseFreq, now);
-      osc.frequency.linearRampToValueAtTime(baseFreq * 1.6, now + 0.15);
-      osc.frequency.linearRampToValueAtTime(baseFreq * 1.3, now + 0.3);
-      gain.gain.setValueAtTime(0.14, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(now);
-      osc.stop(now + 0.35);
-      // Add a warbling overtone for the whistle character
-      const osc2 = ctx.createOscillator();
-      const gain2 = ctx.createGain();
-      osc2.type = "sine";
-      osc2.frequency.setValueAtTime(baseFreq * 2, now);
-      osc2.frequency.linearRampToValueAtTime(baseFreq * 2.5, now + 0.15);
-      gain2.gain.setValueAtTime(0.06, now);
-      gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
-      osc2.connect(gain2);
-      gain2.connect(ctx.destination);
-      osc2.start(now);
-      osc2.stop(now + 0.3);
-    } else if (type === "gameover") {
-      // Sad descending tones
-      const sadNotes = [330, 294, 247, 196];
-      for (let i = 0; i < sadNotes.length; i++) {
-        const delay = i * 0.18;
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = "sine";
-        osc.frequency.setValueAtTime(sadNotes[i], now + delay);
-        gain.gain.setValueAtTime(0.18, now + delay);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + delay + 0.4);
-        osc.connect(gain);
+        filter.connect(gain);
         gain.connect(ctx.destination);
-        osc.start(now + delay);
-        osc.stop(now + delay + 0.4);
-      }
-      // Sad voice
-      try {
-        const utter = new SpeechSynthesisUtterance("Oh no! Game over.");
-        utter.lang = "en-US";
-        utter.rate = 0.8;
-        utter.pitch = 0.7;
-        utter.volume = 0.6;
-        window.speechSynthesis.cancel();
-        window.speechSynthesis.speak(utter);
-      } catch { /* no speech */ }
-    } else if (type === "grab") {
-      // Arrow launch sound when a block is lifted
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = "triangle";
-      osc.frequency.setValueAtTime(700, now);
-      osc.frequency.exponentialRampToValueAtTime(1700, now + 0.16);
-      gain.gain.setValueAtTime(0.16, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(now);
-      osc.stop(now + 0.18);
-      const arrowNoise = ctx.createBufferSource();
-      arrowNoise.buffer = getNoiseBuffer(ctx);
-      const arrowFilter = ctx.createBiquadFilter();
-      arrowFilter.type = "highpass";
-      arrowFilter.frequency.value = 1800;
-      const arrowGain = ctx.createGain();
-      arrowGain.gain.setValueAtTime(0.08, now);
-      arrowGain.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
-      arrowNoise.connect(arrowFilter);
-      arrowFilter.connect(arrowGain);
-      arrowGain.connect(ctx.destination);
-      arrowNoise.start(now);
-      arrowNoise.stop(now + 0.14);
-    } else if (type === "levelup") {
-      // Level up - triumphant fanfare
-      const notes = [523, 659, 784, 1047, 784, 1047];
-      for (let i = 0; i < notes.length; i++) {
-        const delay = i * 0.12;
+        noise.start(now);
+        noise.stop(now + 0.1);
+      } else if (linesCleared >= 2 || type === "multi") {
+        const notes = [523.25, 659.25, 783.99, 1046.5, 1318.51];
+        notes.forEach((freq, idx) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          const delay = idx * 0.04;
+
+          osc.type = "sine";
+          osc.frequency.setValueAtTime(freq, now + delay);
+          osc.frequency.exponentialRampToValueAtTime(freq * 1.18, now + delay + 0.15);
+
+          gain.gain.setValueAtTime(0.001, now + delay);
+          gain.gain.linearRampToValueAtTime(0.15, now + delay + 0.02);
+          gain.gain.exponentialRampToValueAtTime(0.0001, now + delay + 0.22);
+
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+
+          osc.start(now + delay);
+          osc.stop(now + delay + 0.22);
+        });
+      } else if (comboLevel >= 1 || type === "combo") {
+        // 1. combo ve 2. combo aynı temelde çalar; kombo arttıkça (3, 4, 5...) ses frekansı ve sesi/volümü yükselir
+        const effectiveStep = comboLevel <= 2 ? 1 : comboLevel - 1;
+        const baseFreq = 440 * Math.pow(1.15, effectiveStep);
+        const volumeBoost = Math.min(0.35, 0.16 + (comboLevel > 2 ? (comboLevel - 2) * 0.04 : 0));
+
+        const comboChord = [baseFreq, baseFreq * 1.25, baseFreq * 1.5, baseFreq * 1.8];
+
+        comboChord.forEach((f, idx) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          const delay = idx * 0.03;
+
+          osc.type = "sine";
+          osc.frequency.setValueAtTime(f, now + delay);
+          osc.frequency.exponentialRampToValueAtTime(f * 1.35, now + delay + 0.2);
+
+          gain.gain.setValueAtTime(0.001, now + delay);
+          gain.gain.linearRampToValueAtTime(volumeBoost, now + delay + 0.02);
+          gain.gain.exponentialRampToValueAtTime(0.0001, now + delay + 0.25);
+
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+
+          osc.start(now + delay);
+          osc.stop(now + delay + 0.25);
+        });
+      } else if (type === "clear") {
+        const popFreqs = [523.25, 659.25, 783.99];
+        popFreqs.forEach((freq, idx) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          const delay = idx * 0.02;
+
+          osc.type = "sine";
+          osc.frequency.setValueAtTime(freq, now + delay);
+          osc.frequency.exponentialRampToValueAtTime(freq * 1.25, now + delay + 0.12);
+
+          gain.gain.setValueAtTime(0.01, now + delay);
+          gain.gain.linearRampToValueAtTime(0.18, now + delay + 0.02);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + delay + 0.15);
+
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+
+          osc.start(now + delay);
+          osc.stop(now + delay + 0.15);
+        });
+      } else if (type === "place") {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
         osc.type = "triangle";
-        osc.frequency.setValueAtTime(notes[i], now + delay);
-        gain.gain.setValueAtTime(0.15, now + delay);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + delay + 0.3);
+        osc.frequency.setValueAtTime(320, now);
+        osc.frequency.exponentialRampToValueAtTime(140, now + 0.04);
+        gain.gain.setValueAtTime(0.15, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
         osc.connect(gain);
         gain.connect(ctx.destination);
-        osc.start(now + delay);
-        osc.stop(now + delay + 0.3);
+        osc.start(now);
+        osc.stop(now + 0.05);
+      } else if (type === "gameover") {
+        // Üzgün Game Over ses efekti (İnen minör gam ve hüzünlü ton)
+        const sadNotes = [440, 392, 349.23, 293.66, 220];
+        sadNotes.forEach((f, idx) => {
+          const delay = idx * 0.16;
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+
+          osc.type = "sawtooth";
+          osc.frequency.setValueAtTime(f, now + delay);
+          osc.frequency.exponentialRampToValueAtTime(f * 0.88, now + delay + 0.35);
+
+          const filter = ctx.createBiquadFilter();
+          filter.type = "lowpass";
+          filter.frequency.setValueAtTime(800, now + delay);
+          filter.frequency.linearRampToValueAtTime(300, now + delay + 0.35);
+
+          gain.gain.setValueAtTime(0.01, now + delay);
+          gain.gain.linearRampToValueAtTime(0.2, now + delay + 0.04);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + delay + 0.38);
+
+          osc.connect(filter);
+          filter.connect(gain);
+          gain.connect(ctx.destination);
+
+          osc.start(now + delay);
+          osc.stop(now + delay + 0.38);
+        });
+      } else if (type === "start") {
+        const notes = [329.63, 392, 523.25, 659.25];
+        notes.forEach((f, idx) => {
+          const delay = idx * 0.08;
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+
+          osc.type = "triangle";
+          osc.frequency.setValueAtTime(f, now + delay);
+          gain.gain.setValueAtTime(0.01, now + delay);
+          gain.gain.linearRampToValueAtTime(0.15, now + delay + 0.03);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + delay + 0.22);
+
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+
+          osc.start(now + delay);
+          osc.stop(now + delay + 0.22);
+        });
       }
-    } else if (type === "start") {
-      // Game start - bright ascending arpeggio
-      const notes = [392, 523, 659, 784];
-      for (let i = 0; i < notes.length; i++) {
-        const delay = i * 0.08;
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = "triangle";
-        osc.frequency.setValueAtTime(notes[i], now + delay);
-        gain.gain.setValueAtTime(0.12, now + delay);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + delay + 0.25);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start(now + delay);
-        osc.stop(now + delay + 0.25);
-      }
-    }
-  }, [soundEnabled, getCtx, getNoiseBuffer]);
+    },
+    [soundEnabled, getCtx]
+  );
 
   const playSoundRef = useRef(playSound);
-  useEffect(() => { playSoundRef.current = playSound; }, [playSound]);
+  useEffect(() => {
+    playSoundRef.current = playSound;
+  }, [playSound]);
 
-  const vibrate = useCallback((pattern: number | number[]) => {
-    if (!vibrationEnabled) return;
-    try {
-      navigator.vibrate?.(pattern);
-    } catch {
-      // Vibration not available
-    }
-  }, [vibrationEnabled]);
+  const vibrate = useCallback(
+    (pattern: number | number[]) => {
+      if (!vibrationEnabled) return;
+      try {
+        navigator.vibrate?.(pattern);
+      } catch {
+        /* Vibration not available */
+      }
+    },
+    [vibrationEnabled]
+  );
+
   const [grid, setGrid] = useState<number[][]>(createEmptyGrid);
-  const [shapes, setShapes] = useState<(Shape | null)[]>(() => generateThreeShapes(adventureLevel));
+  const [shapes, setShapes] = useState<(Shape | null)[]>(() =>
+    getValidShapes(1, createEmptyGrid())
+  );
   const [score, setScore] = useState(0);
   const [combo, setCombo] = useState(0);
   const [coinsEarned, setCoinsEarned] = useState(0);
@@ -309,26 +564,28 @@ export default function GameScreen({ theme, bestScore, adventureLevel, mode, sou
   const [clearingCols, setClearingCols] = useState<number[]>([]);
   const [isClearing, setIsClearing] = useState(false);
   const [gameOver, setGameOver] = useState(false);
-  const [showGameOverTitle, setShowGameOverTitle] = useState(false);
-  const [showGameOverButtons, setShowGameOverButtons] = useState(false);
-  const [showLevelUp, setShowLevelUp] = useState(false);
-  const [fireworks, setFireworks] = useState<{ id: number; x: number; y: number; color: string }[]>([]);
-  const [boardDanger, setBoardDanger] = useState(false);
-  const [burst, setBurst] = useState<{ row: number; col: number; color: string; intense: boolean } | null>(null);
+
+  const [gameOverFill, setGameOverFill] = useState(false);
+  const [gameOverModalShow, setGameOverModalShow] = useState(false);
+  const [gameOverColor, setGameOverColor] = useState("#ff4757");
+
+  const [isFiftyFivePercentFull, setIsFiftyFivePercentFull] = useState(false);
+  const [showPerfectClear, setShowPerfectClear] = useState(false);
+
+  const [burst, setBurst] = useState<{
+    row: number;
+    col: number;
+    color: string;
+    intense: boolean;
+  } | null>(null);
+  const [ledParticles, setLedParticles] = useState<LEDParticle[]>([]);
   const [displayScore, setDisplayScore] = useState(0);
-  const [recentClear, setRecentClear] = useState<{ lines: number; combo: number; label: string } | null>(null);
+
+  const [comboText, setComboText] = useState<string | null>(null);
+  const [floatingScores, setFloatingScores] = useState<FloatingScore[]>([]);
+
   const [shake, setShake] = useState(false);
-  const [bgPhase, setBgPhase] = useState(0);
-  const [adventureTasks, setAdventureTasks] = useState(() => {
-    if (!isAdventure) return null;
-    return [
-      { color: "#06b6d4", remaining: 12, label: "Mavi", star: false, colorIndex: 5 },
-      { color: "#22c55e", remaining: 16, label: "Yeşil", star: false, colorIndex: 3 },
-      { color: "#f97316", remaining: 20, label: "Turuncu", star: false, colorIndex: 1 },
-      { color: "#ffd447", remaining: 15, label: "Yıldız", star: true, colorIndex: -1 },
-      { color: "#ec4899", remaining: 12, label: "Pembe", star: false, colorIndex: 6 },
-    ];
-  });
+
   const maxComboRef = useRef(0);
   const maxMultiClearRef = useRef(0);
   const blocksPlacedRef = useRef(0);
@@ -343,9 +600,6 @@ export default function GameScreen({ theme, bestScore, adventureLevel, mode, sou
   const gap = 1;
   const totalCellSize = cellSize + gap;
 
-  // Lift offset: how far above the finger the shape appears (so finger doesn't cover it)
-  const touchLiftOffset = 80;
-
   useEffect(() => {
     gridStateRef.current = grid;
   }, [grid]);
@@ -354,16 +608,35 @@ export default function GameScreen({ theme, bestScore, adventureLevel, mode, sou
     dragRef.current = drag;
   }, [drag]);
 
-  // Detect board near-full → bright danger warning
+  // Parçacık animasyon döngüsü
   useEffect(() => {
-    if (gameOver || isClearing) { setBoardDanger(false); return; }
+    if (ledParticles.length === 0) return;
+    const timer = requestAnimationFrame(() => {
+      setLedParticles((prev) =>
+        prev
+          .map((p) => ({
+            ...p,
+            x: p.x + p.vx,
+            y: p.y + p.vy,
+            vy: p.type === "butterfly" ? p.vy - 0.1 : p.vy + 0.15,
+            vx: p.type === "butterfly" ? p.vx + Math.sin(Date.now() * 0.015 + p.id) * 0.4 : p.vx * 0.95,
+            rotation: p.rotation + p.vRot,
+            size: p.size * 0.92,
+            life: (p.life ?? 1) - 0.035,
+          }))
+          .filter((p) => p.size > 0.5 && (p.life ?? 1) > 0)
+      );
+    });
+    return () => cancelAnimationFrame(timer);
+  }, [ledParticles]);
+
+  useEffect(() => {
     let filled = 0;
     for (const row of grid) for (const cell of row) if (cell) filled++;
     const ratio = filled / (GRID_SIZE * GRID_SIZE);
-    setBoardDanger(ratio >= 0.6);
-  }, [grid, gameOver, isClearing]);
+    setIsFiftyFivePercentFull(ratio >= 0.55);
+  }, [grid]);
 
-  // Animate score counting
   useEffect(() => {
     if (displayScore === score) return;
     const diff = score - displayScore;
@@ -374,54 +647,174 @@ export default function GameScreen({ theme, bestScore, adventureLevel, mode, sou
     return () => clearTimeout(timer);
   }, [displayScore, score]);
 
-  // Check game over or level complete
   const checkGameOver = useCallback(
-    (currentGrid: number[][], currentShapes: (Shape | null)[], currentScore: number) => {
-      // Level complete check
-      if (isAdventure && currentScore >= 100 * adventureLevel) {
-        setGameOver(true);
-        setShowLevelUp(true);
-        setShowGameOverTitle(false);
-        setShowGameOverButtons(false);
-        // Launch fireworks
-        const fwColors = ["#ff4757", "#ffd447", "#22c55e", "#06b6d4", "#3b82f6", "#ec4899", "#a855f7"];
-        const fw: { id: number; x: number; y: number; color: string }[] = [];
-        for (let i = 0; i < 12; i++) {
-          fw.push({ id: i, x: 10 + Math.random() * 80, y: 20 + Math.random() * 50, color: fwColors[i % fwColors.length] });
-        }
-        setFireworks(fw);
-        playSound("start");
-        playSound("levelup");
-        vibrate([50, 30, 50, 30, 100]);
-        try {
-          const utter = new SpeechSynthesisUtterance("Wonderful! Level complete!");
-          utter.lang = "en-US";
-          utter.rate = 0.6;
-          utter.pitch = 1.2;
-          utter.volume = 0.7;
-          window.speechSynthesis.cancel();
-          window.speechSynthesis.speak(utter);
-        } catch { /* no speech */ }
-        window.setTimeout(() => setShowGameOverTitle(true), 1800);
-        window.setTimeout(() => {
-          onGameOver(currentScore, coinsEarned, true, { maxCombo: maxComboRef.current, maxMultiClear: maxMultiClearRef.current, blocksPlaced: blocksPlacedRef.current });
-        }, 3500);
-        return;
-      }
+    (
+      currentGrid: number[][],
+      currentShapes: (Shape | null)[],
+      currentScore: number
+    ) => {
       const activeShapes = currentShapes.filter((s): s is Shape => s !== null);
       if (!hasAnyValidMove(currentGrid, activeShapes)) {
         setGameOver(true);
-        setShowLevelUp(false);
-        setShowGameOverTitle(false);
-        setShowGameOverButtons(false);
-        window.setTimeout(() => setShowGameOverTitle(true), 1500);
-        window.setTimeout(() => setShowGameOverButtons(true), 2300);
+        setGameOverFill(true);
+
+        const vibrantColors = ["#ff4757", "#ff007f", "#00f0ff", "#39ff14", "#ffe600", "#b006ff", "#ff7eb9"];
+        setGameOverColor(vibrantColors[Math.floor(Math.random() * vibrantColors.length)]);
+
         playSound("gameover");
         vibrate([100, 50, 100]);
+
+        setTimeout(() => {
+          setGameOverModalShow(true);
+        }, 1500);
       }
     },
-    [playSound, vibrate, adventureLevel, isAdventure]
+    [playSound, vibrate]
   );
+
+  const spawnSquareParticles = (rows: number[], cols: number[]) => {
+    const particles: LEDParticle[] = [];
+    const colors = ["#00f0ff", "#ff007f", "#ffe600", "#39ff14"];
+
+    const generateAt = (r: number, c: number) => {
+      const centerX = c * totalCellSize + cellSize / 2;
+      const centerY = r * totalCellSize + cellSize / 2;
+
+      for (let i = 0; i < 1; i++) {
+        const color = colors[Math.floor(Math.random() * colors.length)];
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 3 + Math.random() * 4;
+        particles.push({
+          id: Math.random(),
+          x: centerX,
+          y: centerY,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed - 1,
+          color,
+          size: 5 + Math.random() * 4,
+          rotation: Math.random() * 360,
+          vRot: (Math.random() - 0.5) * 20,
+          type: "square",
+          life: 0.8,
+        });
+      }
+    };
+
+    rows.forEach((r) => {
+      for (let c = 0; c < GRID_SIZE; c += 2) generateAt(r, c);
+    });
+    cols.forEach((c) => {
+      for (let r = 0; r < GRID_SIZE; r += 2) {
+        if (!rows.includes(r)) generateAt(r, c);
+      }
+    });
+
+    setLedParticles((prev) => [...prev.slice(-15), ...particles]);
+  };
+
+  const spawnButterflyParticles = (rows: number[], cols: number[]) => {
+    const butterflies: LEDParticle[] = [];
+    const colors = ["#ff7eb9", "#ff007f", "#00f0ff", "#ffe600", "#39ff14"];
+
+    const generateButterflyAt = (r: number, c: number) => {
+      const centerX = c * totalCellSize + cellSize / 2;
+      const centerY = r * totalCellSize + cellSize / 2;
+
+      butterflies.push({
+        id: Math.random(),
+        x: centerX,
+        y: centerY,
+        vx: (Math.random() - 0.5) * 4,
+        vy: -Math.random() * 5 - 2,
+        color: colors[Math.floor(Math.random() * colors.length)],
+        size: 10 + Math.random() * 6,
+        rotation: Math.random() * 360,
+        vRot: (Math.random() - 0.5) * 20,
+        type: "butterfly",
+        life: 0.9,
+      });
+    };
+
+    rows.forEach((r) => {
+      for (let c = 0; c < GRID_SIZE; c += 2) generateButterflyAt(r, c);
+    });
+    cols.forEach((c) => {
+      for (let r = 0; r < GRID_SIZE; r += 2) {
+        if (!rows.includes(r)) generateButterflyAt(r, c);
+      }
+    });
+
+    setLedParticles((prev) => [...prev.slice(-15), ...butterflies]);
+  };
+
+  const spawnCrystalParticles = (rows: number[], cols: number[]) => {
+    const particles: LEDParticle[] = [];
+    const colors = ["#00f0ff", "#7afcff", "#ffffff", "#b006ff"];
+    const generateAt = (r: number, c: number) => {
+      const centerX = c * totalCellSize + cellSize / 2;
+      const centerY = r * totalCellSize + cellSize / 2;
+      const color = colors[Math.floor(Math.random() * colors.length)];
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 2 + Math.random() * 4;
+      particles.push({
+        id: Math.random(),
+        x: centerX,
+        y: centerY,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        color,
+        size: 5 + Math.random() * 4,
+        rotation: Math.random() * 360,
+        vRot: (Math.random() - 0.5) * 20,
+        type: "crystal",
+        life: 0.8,
+      });
+    };
+    rows.forEach((r) => {
+      for (let c = 0; c < GRID_SIZE; c += 2) generateAt(r, c);
+    });
+    cols.forEach((c) => {
+      for (let r = 0; r < GRID_SIZE; r += 2) {
+        if (!rows.includes(r)) generateAt(r, c);
+      }
+    });
+    setLedParticles((prev) => [...prev.slice(-15), ...particles]);
+  };
+
+  const runBoardFillSweepEffect = useCallback((onComplete: () => void) => {
+    setIsSweepActive(true);
+
+    for (let r = GRID_SIZE - 1; r >= 0; r--) {
+      setTimeout(() => {
+        setGrid((prev) => {
+          const next = prev.map((row) => [...row]);
+          for (let c = 0; c < GRID_SIZE; c++) {
+            next[r][c] = (r % COLORS.length) + 1;
+          }
+          return next;
+        });
+      }, (GRID_SIZE - 1 - r) * 60);
+    }
+
+    setTimeout(() => {
+      for (let r = GRID_SIZE - 1; r >= 0; r--) {
+        setTimeout(() => {
+          setGrid((prev) => {
+            const next = prev.map((row) => [...row]);
+            for (let c = 0; c < GRID_SIZE; c++) {
+              next[r][c] = 0;
+            }
+            return next;
+          });
+        }, (GRID_SIZE - 1 - r) * 60);
+      }
+    }, GRID_SIZE * 60 + 200);
+
+    setTimeout(() => {
+      setIsSweepActive(false);
+      onComplete();
+    }, GRID_SIZE * 120 + 300);
+  }, []);
 
   const handlePlacement = useCallback(
     (shapeIndex: number, shape: Shape, row: number, col: number) => {
@@ -438,85 +831,132 @@ export default function GameScreen({ theme, bestScore, adventureLevel, mode, sou
       const newGrid = placeShape(currentGrid, shape, row, col);
       setBurst({ row, col, color: shape.color, intense: false });
       window.setTimeout(() => setBurst(null), 520);
-      const { newGrid: clearedGrid, linesCleared, clearedRows, clearedCols } =
-        clearLines(newGrid);
 
-      const newCombo = linesCleared > 0 ? combo + 1 : 0;
-      if (newCombo > maxComboRef.current) maxComboRef.current = newCombo;
-      if (linesCleared > maxMultiClearRef.current) maxMultiClearRef.current = linesCleared;
-      blocksPlacedRef.current += 1;
-      // Adventure: decrement task counts based on placed block color
-      if (isAdventure && adventureTasks) {
-        const placedColorIndex = COLORS.indexOf(shape.color);
-        const clearedAny = linesCleared > 0;
-        setAdventureTasks((prev) => prev ? prev.map((task) => {
-          if (task.remaining <= 0) return task;
-          if (task.star && clearedAny) return { ...task, remaining: task.remaining - linesCleared };
-          if (!task.star && task.colorIndex === placedColorIndex) {
-            return { ...task, remaining: Math.max(0, task.remaining - placedCells) };
-          }
-          return task;
-        }) : prev);
+      const {
+        newGrid: clearedGrid,
+        linesCleared,
+        clearedRows,
+        clearedCols,
+      } = clearLines(newGrid);
+
+      const totalLines = linesCleared;
+      let newCombo = combo;
+
+      if (totalLines > 0) {
+        newCombo = combo + 1;
       }
-      const { points, coins } = calculateScore(placedCells, linesCleared, newCombo);
 
-      setScore((s) => s + points);
+      if (newCombo > maxComboRef.current) maxComboRef.current = newCombo;
+      if (totalLines > maxMultiClearRef.current)
+        maxMultiClearRef.current = totalLines;
+      blocksPlacedRef.current += 1;
+
+      const { points, coins } = calculateScore(
+        placedCells,
+        totalLines,
+        newCombo
+      );
+
+      const newTotalScore = score + points;
+
+      setScore(newTotalScore);
       setCoinsEarned((c) => c + coins);
       setCombo(newCombo);
 
-      if (linesCleared > 0) {
-        const comboTexts = ["", "Nice!", "Great!", "Awesome!", "Amazing!", "Incredible!", "Unbelievable!", "Legendary!"];
-        const lineLabel = linesCleared > 1 ? `${linesCleared}x Lines!` : "Line Clear!";
-        const comboLabel = newCombo > 1 ? ` ${comboTexts[Math.min(newCombo, comboTexts.length - 1)]} Combo x${newCombo}` : "";
-        setRecentClear({ lines: linesCleared, combo: newCombo, label: `${lineLabel}${comboLabel}` });
-        setShake(true);
-        vibrate(newCombo > 1 ? [30, 20, 30, 20, 50] : 50);
+      if (totalLines > 0) {
+        const newFloatingId = Date.now();
+        setFloatingScores((prev) => [
+          ...prev,
+          {
+            id: newFloatingId,
+            points,
+            x: (GRID_SIZE * totalCellSize) / 2,
+            y: (GRID_SIZE * totalCellSize) / 2,
+          },
+        ]);
+        setTimeout(() => {
+          setFloatingScores((prev) => prev.filter((f) => f.id !== newFloatingId));
+        }, 900);
 
-        if (linesCleared >= 2) {
-          const praises = ["Wonderful!", "Super!", "Excellent!", "Amazing!", "Fantastic!", "Incredible!", "Awesome!"];
-          const praise = praises[Math.min(linesCleared - 2 + (newCombo > 1 ? 1 : 0), praises.length - 1)];
-          try {
-            const utter = new SpeechSynthesisUtterance(praise);
-            utter.lang = "en-US";
-            utter.rate = 0.78;
-            utter.pitch = 1.08;
-            utter.volume = 0.6;
-            window.speechSynthesis.cancel();
-            window.speechSynthesis.speak(utter);
-          } catch { /* no speech */ }
+        spawnButterflyParticles(clearedRows, clearedCols);
+        spawnCrystalParticles(clearedRows, clearedCols);
+
+        if (totalLines >= 2) {
+          spawnSquareParticles(clearedRows, clearedCols);
         }
 
-        if (linesCleared >= 2) {
-          playSound("multi", newCombo, linesCleared);
-        } else if (newCombo > 1) {
-          playSound("combo", newCombo, linesCleared);
+        const praiseWord = PRAISE_WORDS[Math.floor(Math.random() * PRAISE_WORDS.length)];
+        if (newCombo > 1) {
+          setComboText(`COMBO ${newCombo}x - ${praiseWord}`);
+          setTimeout(() => setComboText(null), 1200);
         } else {
-          playSound("clear", newCombo, linesCleared);
+          setComboText(praiseWord);
+          setTimeout(() => setComboText(null), 1000);
         }
-        setTimeout(() => setShake(false), 350);
-        setTimeout(() => setRecentClear(null), 1000);
+
+        setShake(true);
+        vibrate(newCombo > 1 ? [30, 20, 30] : 40);
+
+        if (totalLines >= 3) {
+          playSound("multi", newCombo, totalLines);
+        } else if (newCombo >= 1) {
+          playSound("combo", newCombo, totalLines);
+        } else if (totalLines === 2) {
+          playSound("multi", newCombo, totalLines);
+        } else {
+          playSound("clear", newCombo, totalLines);
+        }
+        setTimeout(() => setShake(false), 300);
+
+        const isBoardEmpty = clearedGrid.every((r) => r.every((cell) => cell === 0));
+        if (isBoardEmpty) {
+          setShowPerfectClear(true);
+          setTimeout(() => setShowPerfectClear(false), 2500);
+
+          setBgIndex((prev) => (prev + 1) % BACKGROUND_GRADIENTS.length);
+
+          setClearedCount((prev) => prev + 1);
+          const nextDiff = gameDifficulty + 1;
+          setGameDifficulty(nextDiff);
+
+          setCombo(0);
+
+          runBoardFillSweepEffect(() => {
+            const remainingShapes = shapes.map((s, index) =>
+              index === shapeIndex ? null : s
+            );
+            const isSetCompleted = remainingShapes.every((s) => s === null);
+            if (isSetCompleted) {
+              setCombo(0);
+            }
+            const newShapes = isSetCompleted
+              ? getValidShapes(nextDiff, createEmptyGrid())
+              : remainingShapes;
+            setShapes(newShapes);
+            checkGameOver(createEmptyGrid(), newShapes, newTotalScore);
+          });
+          return;
+        }
       } else {
         playSound("place");
         vibrate(15);
       }
 
-      // Shift background every 200 points
-      const newTotalScore = score + points;
-      setBgPhase(Math.floor(newTotalScore / 200));
+      const remainingShapes = shapes.map((s, index) =>
+        index === shapeIndex ? null : s
+      );
+      const isSetCompleted = remainingShapes.every((s) => s === null);
+      
+      if (isSetCompleted) {
+        setCombo(0);
+      }
 
-      const remainingShapes = shapes.map((s, index) => (index === shapeIndex ? null : s));
-      const newShapes = remainingShapes.every((s) => s === null)
-        ? generateThreeShapes(adventureLevel)
+      const newShapes = isSetCompleted
+        ? getValidShapes(gameDifficulty, clearedGrid)
         : remainingShapes;
       setShapes(newShapes);
 
       if (clearedRows.length > 0 || clearedCols.length > 0) {
-        setBurst({
-          row: clearedRows.length > 0 ? clearedRows[Math.floor(clearedRows.length / 2)] : row,
-          col: clearedCols.length > 0 ? clearedCols[Math.floor(clearedCols.length / 2)] : col,
-          color: shape.color,
-          intense: true,
-        });
         setIsClearing(true);
         setClearingRows(clearedRows);
         setClearingCols(clearedCols);
@@ -527,20 +967,39 @@ export default function GameScreen({ theme, bestScore, adventureLevel, mode, sou
           setClearingCols([]);
           setIsClearing(false);
           checkGameOver(clearedGrid, newShapes, newTotalScore);
-        }, 400);
+        }, 250);
       } else {
         setGrid(newGrid);
         checkGameOver(newGrid, newShapes, newTotalScore);
       }
     },
-    [shapes, combo, checkGameOver, isAdventure, adventureTasks]
+    [
+      shapes,
+      combo,
+      soundEnabled,
+      checkGameOver,
+      vibrate,
+      playSound,
+      score,
+      gameDifficulty,
+      totalCellSize,
+      runBoardFillSweepEffect,
+    ]
   );
 
-  // Find the best snap position: the valid placement closest to the pointer's target
   const findSnapPosition = useCallback(
-    (shape: Shape, targetRow: number, targetCol: number): { row: number; col: number } | null => {
+    (
+      shape: Shape,
+      targetRow: number,
+      targetCol: number
+    ): { row: number; col: number } | null => {
       const currentGrid = gridStateRef.current;
-      if (targetRow < 0 || targetCol < 0 || targetRow >= GRID_SIZE || targetCol >= GRID_SIZE) {
+      if (
+        targetRow < 0 ||
+        targetCol < 0 ||
+        targetRow >= GRID_SIZE ||
+        targetRow >= GRID_SIZE
+      ) {
         return null;
       }
 
@@ -564,18 +1023,19 @@ export default function GameScreen({ theme, bestScore, adventureLevel, mode, sou
     []
   );
 
-  // Compute the target row/col from pointer position
   const computeTargetFromPointer = useCallback(
-    (pointerX: number, pointerY: number, shape: Shape, isTouch: boolean) => {
+    (
+      pointerX: number,
+      pointerY: number,
+      shape: Shape,
+      isTouch: boolean
+    ) => {
       if (!gridRef.current) return { row: -1, col: -1 };
 
       const gridRect = gridRef.current.getBoundingClientRect();
       const gridLeft = gridRect.left;
       const gridTop = gridRect.top;
 
-      // For touch: the shape is lifted above the finger, so the shape's top-left
-      // is at (pointerX - shapeWidth/2, pointerY - touchLiftOffset)
-      // For mouse: shape's top-left is at (pointerX - shapeWidth/2, pointerY - shapeHeight/2)
       const shapePixelW = shape.width * totalCellSize - gap;
       const shapePixelH = shape.height * totalCellSize - gap;
 
@@ -583,11 +1043,9 @@ export default function GameScreen({ theme, bestScore, adventureLevel, mode, sou
       let shapeTop: number;
 
       if (isTouch) {
-        // Shape is centered horizontally on finger, lifted above
         shapeLeft = pointerX - shapePixelW / 2;
-        shapeTop = pointerY - touchLiftOffset - shapePixelH;
+        shapeTop = pointerY - 70 - shapePixelH / 2;
       } else {
-        // Mouse: shape is centered on cursor
         shapeLeft = pointerX - shapePixelW / 2;
         shapeTop = pointerY - shapePixelH / 2;
       }
@@ -600,19 +1058,23 @@ export default function GameScreen({ theme, bestScore, adventureLevel, mode, sou
 
       return { row, col };
     },
-    [totalCellSize, gap, touchLiftOffset]
+    [totalCellSize, gap]
   );
 
-  // Pointer-based drag
   const handlePointerDown = (
     e: React.PointerEvent,
     shapeIndex: number,
     shape: Shape
   ) => {
-    if (isClearing || gameOver || shapes[shapeIndex] === null) return;
+    if (isClearing || isSweepActive || gameOver || shapes[shapeIndex] === null) return;
     e.preventDefault();
 
-    playSound("grab");
+    if (soundEnabled && isTargetShape(shape)) {
+      const audio = new Audio("/sound.mp3");
+      audio.play().catch(() => {});
+    } else {
+      playSound("grab");
+    }
     vibrate(10);
 
     const isTouch = e.pointerType === "touch";
@@ -654,7 +1116,12 @@ export default function GameScreen({ theme, bestScore, adventureLevel, mode, sou
       setDrag(newDrag);
       dragRef.current = newDrag;
 
-      const { row, col } = computeTargetFromPointer(x, y, currentDrag.shape, currentDrag.isTouch);
+      const { row, col } = computeTargetFromPointer(
+        x,
+        y,
+        currentDrag.shape,
+        currentDrag.isTouch
+      );
       const snap = findSnapPosition(currentDrag.shape, row, col);
       setHoverRow(snap?.row ?? -1);
       setHoverCol(snap?.col ?? -1);
@@ -670,18 +1137,25 @@ export default function GameScreen({ theme, bestScore, adventureLevel, mode, sou
     if (!currentDrag) return;
     e.preventDefault();
 
+    const clientX = (e.clientX === 0 && e.clientY === 0) ? currentDrag.pointerX : e.clientX;
+    const clientY = (e.clientX === 0 && e.clientY === 0) ? currentDrag.pointerY : e.clientY;
+
     const { row, col } = computeTargetFromPointer(
-      e.clientX,
-      e.clientY,
+      clientX,
+      clientY,
       currentDrag.shape,
       currentDrag.isTouch
     );
 
     const snap = findSnapPosition(currentDrag.shape, row, col);
     if (snap) {
-      handlePlacement(currentDrag.shapeIndex, currentDrag.shape, snap.row, snap.col);
+      handlePlacement(
+        currentDrag.shapeIndex,
+        currentDrag.shape,
+        snap.row,
+        snap.col
+      );
     }
-    // If no valid snap position, the shape returns to the tray automatically
 
     setDrag(null);
     dragRef.current = null;
@@ -690,40 +1164,63 @@ export default function GameScreen({ theme, bestScore, adventureLevel, mode, sou
   };
 
   const handleRestart = () => {
-    setGrid(createEmptyGrid());
-    gridStateRef.current = createEmptyGrid();
-    setShapes(generateThreeShapes(adventureLevel));
+    const emptyGrid = createEmptyGrid();
+    setGrid(emptyGrid);
+    gridStateRef.current = emptyGrid;
+    const startDiff = 1;
+    setGameDifficulty(startDiff);
+    setClearedCount(0);
+    setShapes(getValidShapes(startDiff, emptyGrid));
     setScore(0);
     setDisplayScore(0);
     setCombo(0);
     setCoinsEarned(0);
     setGameOver(false);
-    setShowGameOverTitle(false);
-    setShowGameOverButtons(false);
+    setGameOverFill(false);
+    setGameOverModalShow(false);
     setBurst(null);
-    setRecentClear(null);
-    setBgPhase(0);
-    setShowLevelUp(false);
-    setFireworks([]);
-    setBoardDanger(false);
+    setLedParticles([]);
+    setComboText(null);
+    setLevelUpText(null);
+    setIsFiftyFivePercentFull(false);
+    setShowPerfectClear(false);
+    setIsSweepActive(false);
     maxComboRef.current = 0;
     maxMultiClearRef.current = 0;
     blocksPlacedRef.current = 0;
-    if (isAdventure) {
-      setAdventureTasks([
-        { color: "#06b6d4", remaining: 12, label: "Mavi", star: false, colorIndex: 5 },
-        { color: "#22c55e", remaining: 16, label: "Yeşil", star: false, colorIndex: 3 },
-        { color: "#f97316", remaining: 20, label: "Turuncu", star: false, colorIndex: 1 },
-        { color: "#ffd447", remaining: 15, label: "Yıldız", star: true, colorIndex: -1 },
-        { color: "#ec4899", remaining: 12, label: "Pembe", star: false, colorIndex: 6 },
-      ]);
-    }
     playSound("start");
   };
 
-  // Render preview overlay for snap position
   const renderPreview = () => {
     if (!drag || hoverRow < 0 || hoverCol < 0) return null;
+
+    const tempGrid = grid.map((r) => [...r]);
+    for (let r = 0; r < drag.shape.height; r++) {
+      for (let c = 0; c < drag.shape.width; c++) {
+        if (drag.shape.cells[r][c]) {
+          const gr = hoverRow + r;
+          const gc = hoverCol + c;
+          if (gr >= 0 && gr < GRID_SIZE && gc >= 0 && gc < GRID_SIZE) {
+            tempGrid[gr][gc] = 1;
+          }
+        }
+      }
+    }
+
+    const willClearRows: number[] = [];
+    const willClearCols: number[] = [];
+
+    for (let r = 0; r < GRID_SIZE; r++) {
+      if (tempGrid[r].every((cell) => cell !== 0)) {
+        willClearRows.push(r);
+      }
+    }
+    for (let c = 0; c < GRID_SIZE; c++) {
+      if (tempGrid.every((row) => row[c] !== 0)) {
+        willClearCols.push(c);
+      }
+    }
+
     const cells: React.ReactNode[] = [];
     for (let r = 0; r < drag.shape.height; r++) {
       for (let c = 0; c < drag.shape.width; c++) {
@@ -731,6 +1228,7 @@ export default function GameScreen({ theme, bestScore, adventureLevel, mode, sou
           cells.push(
             <div
               key={`prev-${r}-${c}`}
+              className="block-3d"
               style={{
                 position: "absolute",
                 left: (hoverCol + c) * totalCellSize,
@@ -739,12 +1237,7 @@ export default function GameScreen({ theme, bestScore, adventureLevel, mode, sou
                 height: cellSize,
                 background: drag.shape.color,
                 opacity: 0.5,
-                borderRadius: 6,
-                border: "2px solid rgba(255,255,255,0.95)",
                 boxSizing: "border-box",
-                color: drag.shape.color,
-                boxShadow: `0 0 18px ${drag.shape.color}, 0 0 38px ${drag.shape.color}, inset 0 0 12px rgba(255,255,255,0.7)`,
-                animation: "previewGlow 0.6s ease-in-out infinite alternate",
               }}
             />
           );
@@ -752,41 +1245,53 @@ export default function GameScreen({ theme, bestScore, adventureLevel, mode, sou
       }
     }
 
-    // Check which rows/cols would be completed by this placement
-    const previewGrid = placeShape(gridStateRef.current, drag.shape, hoverRow, hoverCol);
-    const wouldClearRows: number[] = [];
-    const wouldClearCols: number[] = [];
-    for (let r = 0; r < GRID_SIZE; r++) {
-      if (previewGrid[r].every((v) => v !== 0)) wouldClearRows.push(r);
-    }
-    for (let c = 0; c < GRID_SIZE; c++) {
-      if (previewGrid.every((row) => row[c] !== 0)) wouldClearCols.push(c);
-    }
+    const rowHighlights = willClearRows.map((r) => (
+      <div
+        key={`clear-row-${r}`}
+        style={{
+          position: "absolute",
+          left: 0,
+          top: r * totalCellSize,
+          width: GRID_SIZE * totalCellSize - gap,
+          height: cellSize,
+          borderRadius: 6,
+          border: "2.5px solid #00f0ff",
+          boxSizing: "border-box",
+          pointerEvents: "none",
+          animation: "ledRowColGlow 0.4s infinite linear",
+          zIndex: 15,
+        }}
+      />
+    ));
 
-    // Add illumination bars for rows/cols that would clear
-    wouldClearRows.forEach((r) => {
-      cells.push(
-        <div
-          key={`prev-row-${r}`}
-          className="clearBeam clearBeamHorizontal previewBeam"
-          style={{ top: (r + 0.5) * totalCellSize }}
-        />
-      );
-    });
-    wouldClearCols.forEach((c) => {
-      cells.push(
-        <div
-          key={`prev-col-${c}`}
-          className="clearBeam clearBeamVertical previewBeam"
-          style={{ left: (c + 0.5) * totalCellSize }}
-        />
-      );
-    });
+    const colHighlights = willClearCols.map((c) => (
+      <div
+        key={`clear-col-${c}`}
+        style={{
+          position: "absolute",
+          left: c * totalCellSize,
+          top: 0,
+          width: cellSize,
+          height: GRID_SIZE * totalCellSize - gap,
+          borderRadius: 6,
+          border: "2.5px solid #ff007f",
+          boxSizing: "border-box",
+          pointerEvents: "none",
+          animation: "ledRowColGlow 0.4s infinite linear",
+          zIndex: 15,
+        }}
+      />
+    ));
 
-    return <>{cells}</>;
+    return (
+      <>
+        {rowHighlights}
+        {colHighlights}
+        {cells}
+      </>
+    );
   };
 
-  // Compute drag ghost position
   const getDragGhostStyle = (): React.CSSProperties => {
     if (!drag) return { display: "none" };
 
@@ -797,11 +1302,9 @@ export default function GameScreen({ theme, bestScore, adventureLevel, mode, sou
     let top: number;
 
     if (drag.isTouch) {
-      // Centered on finger horizontally, lifted above finger
       left = drag.pointerX - shapePixelW / 2;
-      top = drag.pointerY - touchLiftOffset - shapePixelH;
+      top = drag.pointerY - 70 - shapePixelH / 2;
     } else {
-      // Mouse: centered on cursor
       left = drag.pointerX - shapePixelW / 2;
       top = drag.pointerY - shapePixelH / 2;
     }
@@ -821,7 +1324,6 @@ export default function GameScreen({ theme, bestScore, adventureLevel, mode, sou
     };
   };
 
-  // Show valid placement indicator when not dragging
   const showValidHint = (shape: Shape | null): boolean => {
     if (!shape || drag) return false;
     return canPlaceAnywhere(gridStateRef.current, shape);
@@ -833,9 +1335,7 @@ export default function GameScreen({ theme, bestScore, adventureLevel, mode, sou
       onPointerUp={drag ? handlePointerUp : undefined}
       onPointerCancel={drag ? handlePointerUp : undefined}
       style={{
-        background: isAdventure
-          ? `linear-gradient(180deg, #263f71 0%, #344e82 48%, #21375f 100%)`
-          : `linear-gradient(180deg, hsl(${220 + bgPhase * 3 % 360}, 40%, ${32 + Math.min(bgPhase * 0.3, 8)}%), hsl(220, 38%, 22%))`,
+        background: BACKGROUND_GRADIENTS[bgIndex % BACKGROUND_GRADIENTS.length],
         minHeight: "100vh",
         color: theme.textColor,
         fontFamily: "'Nunito', sans-serif",
@@ -845,10 +1345,98 @@ export default function GameScreen({ theme, bestScore, adventureLevel, mode, sou
         userSelect: "none",
         WebkitUserSelect: "none",
         touchAction: "none",
-        transition: "background 0.8s ease",
-        animation: shake ? "shake 0.35s ease" : "none",
+        transition: "background 1s ease-in-out",
+        animation: shake ? "shake 0.3s ease" : "none",
+        position: "relative",
+        overflow: "hidden",
       }}
     >
+      <style>{`
+        .block-3d {
+          border-radius: 2px;
+          box-sizing: border-box;
+          border-top: 2.5px solid rgba(255, 255, 255, 0.65);
+          border-left: 2.5px solid rgba(255, 255, 255, 0.4);
+          border-right: 2.5px solid rgba(0, 0, 0, 0.4);
+          border-bottom: 2.5px solid rgba(0, 0, 0, 0.6);
+          box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15), 0 3px 6px rgba(0, 0, 0, 0.35);
+          filter: brightness(1.1) saturate(1.2);
+        }
+        @keyframes shake {
+          0% { transform: translate(0, 0); }
+          20% { transform: translate(-4px, 3px); }
+          40% { transform: translate(4px, -3px); }
+          60% { transform: translate(-3px, 2px); }
+          80% { transform: translate(3px, -2px); }
+          100% { transform: translate(0, 0); }
+        }
+        @keyframes bgMatchingGlowPulse {
+          0% { box-shadow: 0 0 18px #00d2ff, inset 0 0 15px rgba(0, 210, 255, 0.4); border-color: #00d2ff; }
+          50% { box-shadow: 0 0 18px #6a11cb, inset 0 0 15px rgba(106, 17, 203, 0.4); border-color: #6a11cb; }
+          100% { box-shadow: 0 0 18px #00d2ff, inset 0 0 15px rgba(0, 210, 255, 0.4); border-color: #00d2ff; }
+        }
+        @keyframes themeLightSeq {
+          0% { background-color: #00d2ff; box-shadow: 0 0 12px #00d2ff; }
+          50% { background-color: #ffe600; box-shadow: 0 0 12px #ffe600; }
+          100% { background-color: #00d2ff; box-shadow: 0 0 12px #00d2ff; }
+        }
+        @keyframes blinkGameOver {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50% { opacity: 0.15; transform: scale(0.96); }
+        }
+        @keyframes perfectGlow {
+          0% {
+            text-shadow: 0 0 10px #ffffff, 0 0 20px #ffe600, 0 0 35px #ff007f;
+            transform: translate(-50%, -50%) scale(1);
+          }
+          100% {
+            text-shadow: 0 0 20px #ffffff, 0 0 30px #00f0ff, 0 0 50px #39ff14;
+            transform: translate(-50%, -50%) scale(1.12);
+          }
+        }
+        @keyframes lineClearGlow {
+          0% {
+            opacity: 1;
+            transform: scale(0.98);
+          }
+          50% {
+            opacity: 1;
+            transform: scale(1.1);
+            filter: brightness(2);
+          }
+          100% {
+            opacity: 0;
+            transform: scale(0.3);
+          }
+        }
+        @keyframes lineClearFlash {
+          0% {
+            opacity: 0;
+            transform: scaleX(0.8);
+          }
+          50% {
+            opacity: 1;
+            transform: scaleX(1.05);
+            filter: brightness(2.5);
+          }
+          100% {
+            opacity: 0;
+            transform: scaleX(1);
+          }
+        }
+        @keyframes popSquare {
+          0% { transform: scale(0); opacity: 0; }
+          70% { transform: scale(1.1); opacity: 1; }
+          100% { transform: scale(1); opacity: 1; }
+        }
+        @keyframes floatUpScore {
+          0% { opacity: 1; transform: translate(-50%, -50%) scale(1.2); }
+          50% { opacity: 1; transform: translate(-50%, -100px) scale(1.3); }
+          100% { opacity: 0; transform: translate(-50%, -180px) scale(0.7); }
+        }
+      `}</style>
+
+      {/* Üst Bar / Skor Tabela */}
       <div
         style={{
           width: "100%",
@@ -863,273 +1451,370 @@ export default function GameScreen({ theme, bestScore, adventureLevel, mode, sou
         <button
           onClick={onExit}
           aria-label="Menüye dön"
-          style={{ background: "transparent", border: "none", color: "#d7efff", fontSize: 38, lineHeight: 1, cursor: "pointer", padding: 0 }}
+          style={{
+            background: "transparent",
+            border: "none",
+            color: "#d7efff",
+            fontSize: 38,
+            lineHeight: 1,
+            cursor: "pointer",
+          }}
         >
           ‹
         </button>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{
-            background: theme.headerBg,
-            borderRadius: 12,
-            padding: "6px 16px",
-            fontWeight: 900,
-            fontSize: 16,
-            fontFamily: "'Fredoka', sans-serif",
-            color: theme.accent,
-            boxShadow: `0 2px 12px ${theme.accent}33`,
-          }}>
-            {isAdventure ? `Serüven ${adventureLevel}` : `Bölüm ${adventureLevel}`}
+        <div style={{ textAlign: "center" }}>
+          <div
+            style={{
+              fontSize: 13,
+              textTransform: "uppercase",
+              letterSpacing: 1,
+              opacity: 0.8,
+            }}
+          >
+            SKOR
           </div>
-          <div style={{
-            background: "rgba(255,255,255,0.08)",
-            borderRadius: 12,
-            padding: "6px 14px",
-            fontWeight: 800,
-            fontSize: 15,
-            color: theme.textColor,
-          }}>
-            🪙 {coinsEarned}
+          <div style={{ fontSize: 32, fontWeight: 900, color: "#fff" }}>
+            {displayScore}
           </div>
         </div>
-        <button
-          onClick={onExit}
-          aria-label="Ayarlar"
-          style={{ background: "transparent", border: "none", color: "#d7efff", fontSize: 25, cursor: "pointer", padding: 0 }}
-        >
-          ⚙
-        </button>
+        <div style={{ textAlign: "right" }}>
+          <div
+            style={{
+              fontSize: 13,
+              textTransform: "uppercase",
+              letterSpacing: 1,
+              opacity: 0.8,
+            }}
+          >
+            SEVİYE {gameDifficulty}
+          </div>
+          <div style={{ fontSize: 20, fontWeight: 800, color: "#ffd447" }}>
+            {Math.max(bestScore, score)}
+          </div>
+        </div>
       </div>
 
-      {isAdventure && adventureTasks && (
-        <div style={{ width: "100%", maxWidth: 460, display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 7, margin: "0 auto 12px", padding: "8px 10px", boxSizing: "border-box", background: "rgba(7,14,42,0.78)", borderRadius: 14, border: "1px solid rgba(255,255,255,0.12)" }}>
-          {adventureTasks.map((task) => (
-            <div key={task.label} style={{ textAlign: "center", color: "#fff", opacity: task.remaining <= 0 ? 0.35 : 1 }}>
-              <div style={{ width: 18, height: 18, margin: "0 auto 2px", background: task.color, clipPath: task.star ? "polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 100%, 50% 73%, 21% 100%, 32% 57%, 2% 35%, 39% 35%)" : "polygon(50% 0%, 100% 28%, 100% 72%, 50% 100%, 0 72%, 0 28%)", filter: `drop-shadow(0 0 4px ${task.color})` }} />
-              <div style={{ fontSize: 14, fontWeight: 900, lineHeight: 1 }}>{task.remaining}</div>
-              <div style={{ fontSize: 9, opacity: 0.7 }}>{task.label}</div>
-            </div>
-          ))}
-        </div>
-      )}
-      <div style={{ fontFamily: "'Fredoka', sans-serif", fontSize: 52, lineHeight: 1, fontWeight: 900, color: "#fff", textShadow: "0 3px 0 rgba(23,34,73,0.45), 0 0 18px rgba(255,255,255,0.35)", margin: "4px 0 16px", textAlign: "center" }}>{displayScore}</div>
-
-      {/* Combo indicator - overlay so it doesn't shift the grid */}
-      {recentClear && (
-        <div
-          style={{
-            position: "fixed",
-            top: "32%",
-            left: "50%",
-            transform: "translate(-50%, -50%)",
-            background: recentClear.combo > 1
-              ? "linear-gradient(135deg, #ff6b35, #ffbd20, #26d85a)"
-              : theme.accent,
-            color: "#fff",
-            borderRadius: 24,
-            padding: recentClear.combo > 1 ? "16px 36px" : "10px 28px",
-            fontWeight: 900,
-            fontSize: recentClear.combo > 1 ? 28 : 20,
-            fontFamily: "'Fredoka', sans-serif",
-            animation: "comboPop 0.3s ease",
-            boxShadow: recentClear.combo > 1
-              ? "0 6px 30px rgba(255,107,53,0.7), 0 0 60px rgba(255,189,32,0.4)"
-              : `0 4px 24px ${theme.accent}88`,
-            zIndex: 1500,
-            pointerEvents: "none",
-            whiteSpace: "nowrap",
-            textAlign: "center",
-            textShadow: "0 2px 4px rgba(0,0,0,0.4)",
-            letterSpacing: recentClear.combo > 1 ? 1 : 0,
-          }}
-        >
-          {recentClear.label}
-        </div>
-      )}
-
-      {/* Game grid */}
+      {/* Oyun Tahtası (8x8) */}
       <div
         ref={gridRef}
-        className={boardDanger ? "dangerGrid" : undefined}
         style={{
           position: "relative",
-          background: theme.gridBg,
-          borderRadius: 16,
-          padding: gap,
-          display: "grid",
-          gridTemplateColumns: `repeat(${GRID_SIZE}, ${cellSize}px)`,
-          gridTemplateRows: `repeat(${GRID_SIZE}, ${cellSize}px)`,
-          gap,
-          boxShadow: "0 10px 28px rgba(12,20,55,0.42)",
+          width: GRID_SIZE * totalCellSize - gap,
+          height: GRID_SIZE * totalCellSize - gap,
+          background: "rgba(10, 20, 40, 0.6)",
+          borderRadius: 12,
+          padding: 0,
+          border: isFiftyFivePercentFull
+            ? "3px solid #00d2ff"
+            : "2px solid rgba(255,255,255,0.1)",
+          animation: isFiftyFivePercentFull
+            ? "bgMatchingGlowPulse 1.5s infinite linear"
+            : "none",
+          transition: "border 0.3s ease",
+          overflow: "visible",
         }}
       >
+        {isFiftyFivePercentFull && (
+          <div
+            style={{
+              position: "absolute",
+              inset: -12,
+              pointerEvents: "none",
+              zIndex: 25,
+            }}
+          >
+            {Array.from({ length: 16 }).map((_, idx) => {
+              let top = "0%";
+              let left = "0%";
+              if (idx < 5) {
+                left = `${(idx / 4) * 100}%`;
+                top = "0%";
+              } else if (idx < 9) {
+                left = "100%";
+                top = `${((idx - 4) / 4) * 100}%`;
+              } else if (idx < 13) {
+                left = `${(1 - (idx - 8) / 4) * 100}%`;
+                top = "100%";
+              } else {
+                left = "0%";
+                top = `${(1 - (idx - 12) / 4) * 100}%`;
+              }
+              return (
+                <div
+                  key={`theme-bulb-${idx}`}
+                  style={{
+                    position: "absolute",
+                    left,
+                    top,
+                    width: 12,
+                    height: 12,
+                    borderRadius: "50%",
+                    transform: "translate(-50%, -50%)",
+                    animation: "themeLightSeq 0.8s infinite linear",
+                    animationDelay: `${idx * 0.08}s`,
+                  }}
+                />
+              );
+            })}
+          </div>
+        )}
+
         {grid.map((row, r) =>
           row.map((cell, c) => {
-            const isClearing =
-              clearingRows.includes(r) || clearingCols.includes(c);
-            const isHover =
-              hoverRow >= 0 &&
-              hoverCol >= 0 &&
-              drag &&
-              r >= hoverRow &&
-              r < hoverRow + drag.shape.height &&
-              c >= hoverCol &&
-              c < hoverCol + drag.shape.width &&
-              drag.shape.cells[r - hoverRow]?.[c - hoverCol];
-
+            const isClearingCell = clearingRows.includes(r) || clearingCols.includes(c);
             return (
               <div
                 key={`${r}-${c}`}
+                className={cell ? "block-3d" : ""}
                 style={{
+                  position: "absolute",
+                  left: c * totalCellSize,
+                  top: r * totalCellSize,
                   width: cellSize,
                   height: cellSize,
-                            background: cell
-                    ? isClearing
-                      ? "#ffffff"
-                      : `linear-gradient(135deg, rgba(255,255,255,0.42) 0%, ${COLORS[cell - 1] || COLORS[0]} 25%, ${COLORS[cell - 1] || COLORS[0]} 70%, rgba(0,0,0,0.3) 100%)`
-                    : isHover
-                      ? theme.accent + "33"
-                      : theme.cellEmpty,
-                  borderRadius: 3,
-                  transition: isClearing
-                    ? "none"
-                    : "background 0.1s ease",
-                  transform: isClearing ? "scale(0.5) translateY(-30px)" : "scale(1)",
-                  opacity: isClearing ? 0 : 1,
-                  filter: cell && !isClearing ? "saturate(1.35) brightness(1.12)" : undefined,
-                  animation: gameOver && cell ? "gameOverCellRise 1.2s cubic-bezier(0.2, 0.8, 0.2, 1) forwards" : isClearing ? "cellClearGlow 0.4s ease forwards" : undefined,
-                  animationDelay: gameOver && cell ? `${(r * GRID_SIZE + c) * 18}ms` : undefined,
-                  boxShadow: cell && !isClearing
-                    ? `inset 0 -5px 0 rgba(0,0,0,0.32), inset 0 3px 0 rgba(255,255,255,0.48), inset -3px 0 0 rgba(0,0,0,0.18), inset 3px 0 0 rgba(255,255,255,0.26), 0 0 10px ${COLORS[(cell || 1) - 1] || "#fff"}88, 0 0 20px ${COLORS[(cell || 1) - 1] || "#fff"}44`
-                    : isClearing
-                      ? `0 0 30px #fff, 0 0 60px ${COLORS[(cell || 1) - 1] || "#fff"}, 0 0 80px ${COLORS[(cell || 1) - 1] || "#fff"}aa, inset 0 0 20px #fff`
-                      : "none",
+                  background: cell
+                    ? COLORS[(cell - 1) % COLORS.length]
+                    : "rgba(255,255,255,0.05)",
+                  borderRadius: cell ? 2 : 4,
+                  boxSizing: "border-box",
+                  transition: "background 0.15s ease",
+                  animation: isClearingCell
+                    ? "lineClearGlow 0.25s ease-out forwards"
+                    : "none",
+                  zIndex: isClearingCell ? 20 : 1,
                 }}
               />
             );
           })
         )}
-        {clearingRows.map((clearingRow) => (
-          <div key={`row-beam-${clearingRow}`} className="clearBeam clearBeamHorizontal" style={{ top: (clearingRow + 0.5) * totalCellSize }} />
-        ))}
-        {clearingCols.map((clearingCol) => (
-          <div key={`col-beam-${clearingCol}`} className="clearBeam clearBeamVertical" style={{ left: (clearingCol + 0.5) * totalCellSize }} />
-        ))}
-        {clearingRows.map((clearingRow) =>
-          Array.from({ length: GRID_SIZE }, (_, ci) => (
-            <div
-              key={`burst-r-${clearingRow}-${ci}`}
-              className={burst?.intense ? "burst burstIntense" : "burst"}
-              style={{ left: (ci + 0.5) * totalCellSize, top: (clearingRow + 0.5) * totalCellSize, color: burst?.color || "#fff" }}
-            >
-              <span className="burstCore" />
-              {Array.from({ length: 6 }, (_, ri) => (
-                <span key={`p-${ri}`} className="burstParticle" style={{ "--pf": `rotate(${ri * 60}deg) translateY(-${30 + (ri % 3) * 10}px)` } as React.CSSProperties} />
-              ))}
-            </div>
-          ))
-        )}
-        {clearingCols.map((clearingCol) =>
-          Array.from({ length: GRID_SIZE }, (_, ri) => {
-            if (clearingRows.includes(ri)) return null;
-            return (
-              <div
-                key={`burst-c-${clearingCol}-${ri}`}
-                className={burst?.intense ? "burst burstIntense" : "burst"}
-                style={{ left: (clearingCol + 0.5) * totalCellSize, top: (ri + 0.5) * totalCellSize, color: burst?.color || "#fff" }}
-              >
-                <span className="burstCore" />
-                {Array.from({ length: 6 }, (_, pi) => (
-                  <span key={`pc-${pi}`} className="burstParticle" style={{ "--pf": `rotate(${pi * 60}deg) translateY(-${30 + (pi % 3) * 10}px)` } as React.CSSProperties} />
-                ))}
-              </div>
-            );
-          })
-        )}
-        {burst && !clearingRows.length && !clearingCols.length && (
+        {renderPreview()}
+
+        {clearingRows.map((r) => (
           <div
-            className={burst.intense ? "burst burstIntense" : "burst"}
+            key={`active-clear-row-${r}`}
             style={{
-              left: (burst.col + 0.5) * totalCellSize,
-              top: (burst.row + 0.5) * totalCellSize,
-              color: burst.color,
+              position: "absolute",
+              left: 0,
+              top: r * totalCellSize,
+              width: GRID_SIZE * totalCellSize - gap,
+              height: cellSize,
+              borderRadius: 6,
+              background: "linear-gradient(90deg, transparent, #ff007f, #ffffff, #00f0ff, transparent)",
+              boxShadow: "0 0 20px #00f0ff, 0 0 40px #ff007f",
+              pointerEvents: "none",
+              zIndex: 30,
+              animation: "lineClearFlash 0.25s ease-out forwards",
+            }}
+          />
+        ))}
+        {clearingCols.map((c) => (
+          <div
+            key={`active-clear-col-${c}`}
+            style={{
+              position: "absolute",
+              left: c * totalCellSize,
+              top: 0,
+              width: cellSize,
+              height: GRID_SIZE * totalCellSize - gap,
+              borderRadius: 6,
+              background: "linear-gradient(180deg, transparent, #ff007f, #ffffff, #00f0ff, transparent)",
+              boxShadow: "0 0 20px #ff007f, 0 0 40px #00f0ff",
+              pointerEvents: "none",
+              zIndex: 30,
+              animation: "lineClearFlash 0.25s ease-out forwards",
+            }}
+          />
+        ))}
+
+        {ledParticles.map((p) => (
+          <div
+            key={p.id}
+            style={{
+              position: "absolute",
+              left: p.x,
+              top: p.y,
+              width: p.size,
+              height: p.size,
+              background: p.color,
+              borderRadius: p.type === "square" ? 2 : 0,
+              clipPath:
+                p.type === "butterfly"
+                  ? "polygon(50% 0%, 100% 38%, 82% 100%, 50% 75%, 18% 100%, 0% 38%)"
+                  : p.type === "crystal"
+                  ? "polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)"
+                  : "none",
+              transform: `translate(-50%, -50%) rotate(${p.rotation}deg)`,
+              boxShadow: `0 0 ${p.size * 1.5}px ${p.color}`,
+              pointerEvents: "none",
+              zIndex: 40,
+              opacity: p.life ?? 1,
+            }}
+          />
+        ))}
+
+        {comboText && (
+          <div
+            style={{
+              position: "absolute",
+              top: "50%",
+              left: "50%",
+              transform: "translate(-50%, -50%)",
+              fontSize: 34,
+              fontWeight: 900,
+              color: "#ffe600",
+              textShadow: "0 0 20px #ff007f, 0 0 40px #ffe600, 0 0 60px #00f0ff",
+              pointerEvents: "none",
+              zIndex: 40,
+              textAlign: "center",
+              whiteSpace: "nowrap",
             }}
           >
-            {Array.from({ length: 8 }, (_, index) => (
-              <span key={`ray-${index}`} className="burstRay" style={{ "--rot": `${index * 45}deg` } as React.CSSProperties} />
-            ))}
-            {Array.from({ length: 12 }, (_, index) => (
-              <span key={`particle-${index}`} className="burstParticle" style={{ "--pf": `rotate(${index * 30}deg) translateY(-${burst.intense ? 48 + (index % 3) * 12 : 28 + (index % 3) * 7}px)` } as React.CSSProperties} />
-            ))}
-            <span className="burstCore" />
+            {comboText}
           </div>
         )}
-        {renderPreview()}
+
+        {levelUpText && (
+          <div
+            style={{
+              position: "absolute",
+              top: "50%",
+              left: "50%",
+              transform: "translate(-50%, -50%)",
+              fontSize: 40,
+              fontWeight: 900,
+              color: "#00f0ff",
+              textShadow: "0 0 20px #00f0ff, 0 0 40px #ffffff, 0 0 60px #ff007f",
+              pointerEvents: "none",
+              zIndex: 60,
+              textAlign: "center",
+              whiteSpace: "nowrap",
+              animation: "perfectGlow 0.8s infinite alternate ease-in-out",
+            }}
+          >
+            {levelUpText}
+          </div>
+        )}
+
+        {showPerfectClear && (
+          <div
+            style={{
+              position: "absolute",
+              top: "50%",
+              left: "50%",
+              transform: "translate(-50%, -50%)",
+              fontSize: 44,
+              fontWeight: 900,
+              color: "#ffffff",
+              letterSpacing: 3,
+              animation: "perfectGlow 0.8s infinite alternate ease-in-out",
+              pointerEvents: "none",
+              zIndex: 60,
+              whiteSpace: "nowrap",
+            }}
+          >
+            Perfect Clear!
+          </div>
+        )}
+
+        {floatingScores.map((f) => (
+          <div
+            key={f.id}
+            style={{
+              position: "absolute",
+              left: f.x,
+              top: f.y,
+              fontSize: 28,
+              fontWeight: 900,
+              color: "#39ff14",
+              textShadow: "0 0 10px #39ff14, 0 0 25px #ffffff",
+              pointerEvents: "none",
+              zIndex: 50,
+              animation: "floatUpScore 0.8s ease-out forwards",
+            }}
+          >
+            +{f.points}
+          </div>
+        ))}
+
+        {gameOverFill && (
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              background: "rgba(5, 10, 25, 0.95)",
+              zIndex: 100,
+              display: "grid",
+              gridTemplateColumns: `repeat(${GRID_SIZE}, 1fr)`,
+              gridTemplateRows: `repeat(${GRID_SIZE}, 1fr)`,
+              gap: 2,
+              padding: 4,
+            }}
+          >
+            {Array.from({ length: GRID_SIZE * GRID_SIZE }).map((_, i) => (
+              <div
+                key={i}
+                className="block-3d"
+                style={{
+                  background: COLORS[i % COLORS.length],
+                  animation: `popSquare 0.4s ease ${(i * 0.015)}s forwards`,
+                  transform: "scale(0)",
+                }}
+              />
+            ))}
+          </div>
+        )}
       </div>
 
-      {/* Shapes tray */}
+      {/* Şekil Seçim Tepsisi */}
       <div
         style={{
           display: "flex",
-          gap: 16,
-          marginTop: 24,
-          padding: "16px 20px",
-          background: theme.headerBg,
-          borderRadius: 16,
+          justifyContent: "space-around",
+          alignItems: "center",
           width: "100%",
           maxWidth: 460,
-          justifyContent: "center",
-          alignItems: "center",
-          minHeight: 100,
+          marginTop: 25,
+          padding: "0 10px",
+          boxSizing: "border-box",
         }}
       >
-        {shapes.map((shape, i) => (
+        {shapes.map((shape, index) => (
           <div
-            key={i}
-            onPointerDown={
-              shape && !drag && !isClearing && !gameOver
-                ? (e) => handlePointerDown(e, i, shape)
-                : undefined
+            key={index}
+            onPointerDown={(e) =>
+              shape && handlePointerDown(e, index, shape)
             }
             style={{
-              cursor: shape && !drag ? "grab" : "default",
-              opacity: !shape || (drag && drag.shapeIndex === i) ? 0.15 : 1,
-              padding: 10,
-              borderRadius: 12,
-              background: shape && !drag ? "linear-gradient(145deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02))" : "transparent",
-              border: shape && !drag ? "1px solid rgba(255,255,255,0.08)" : "1px solid transparent",
-              boxShadow: "none",
-              transition: "opacity 0.2s, transform 0.2s, box-shadow 0.2s",
-              transform: shape && !drag ? "scale(1) translateY(0)" : "scale(0.9) translateY(3px)",
-              minWidth: shape ? undefined : (cellSize - 8) * 3 + 12,
-              minHeight: shape ? undefined : (cellSize - 8) * 3 + 12,
+              width: 100,
+              height: 100,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
+              cursor: shape ? "grab" : "default",
+              opacity: drag?.shapeIndex === index ? 0.3 : 1,
             }}
           >
             {shape && (
               <div
                 style={{
                   display: "grid",
-                  gridTemplateColumns: `repeat(${shape.width}, ${cellSize - 8}px)`,
-                  gridTemplateRows: `repeat(${shape.height}, ${cellSize - 8}px)`,
-                  gap: 1,
+                  gridTemplateColumns: `repeat(${shape.width}, 20px)`,
+                  gridTemplateRows: `repeat(${shape.height}, 20px)`,
+                  gap: 2,
+                  filter: showValidHint(shape)
+                    ? "drop-shadow(0 0 6px rgba(255,255,255,0.6))"
+                    : "none",
                 }}
               >
                 {shape.cells.map((row, r) =>
-                  row.map((filled, c) => (
+                  row.map((cell, c) => (
                     <div
                       key={`${r}-${c}`}
+                      className={cell ? "block-3d" : ""}
                       style={{
-                        width: cellSize - 8,
-                        height: cellSize - 8,
-                        background: filled
-                      ? `linear-gradient(135deg, rgba(255,255,255,0.42) 0%, ${shape.color} 25%, ${shape.color} 70%, rgba(0,0,0,0.3) 100%)`
-                      : "transparent",
-                        borderRadius: 3,
-                        boxShadow: filled
-                          ? `inset 0 -4px 0 rgba(0,0,0,0.25), inset 0 3px 0 rgba(255,255,255,0.2), inset -3px 0 0 rgba(0,0,0,0.12), inset 3px 0 0 rgba(255,255,255,0.08)`
-                          : "none",
+                        width: 20,
+                        height: 20,
+                        background: cell ? shape.color : "transparent",
                       }}
                     />
                   ))
@@ -1140,21 +1825,18 @@ export default function GameScreen({ theme, bestScore, adventureLevel, mode, sou
         ))}
       </div>
 
-      {/* Dragging shape ghost */}
+      {/* Sürüklenen Şekil Önizlemesi */}
       {drag && (
         <div style={getDragGhostStyle()}>
           {drag.shape.cells.map((row, r) =>
-            row.map((filled, c) => (
+            row.map((cell, c) => (
               <div
-                key={`drag-${r}-${c}`}
+                key={`${r}-${c}`}
+                className={cell ? "block-3d" : ""}
                 style={{
                   width: cellSize,
                   height: cellSize,
-                  background: filled ? drag.shape.color : "transparent",
-                  borderRadius: 3,
-                  boxShadow: filled
-                    ? `inset 0 -4px 0 rgba(0,0,0,0.3), inset 0 3px 0 rgba(255,255,255,0.25), inset -3px 0 0 rgba(0,0,0,0.15), inset 3px 0 0 rgba(255,255,255,0.1)`
-                    : "none",
+                  background: cell ? drag.shape.color : "transparent",
                 }}
               />
             ))
@@ -1162,102 +1844,59 @@ export default function GameScreen({ theme, bestScore, adventureLevel, mode, sou
         </div>
       )}
 
-      {/* Game over overlay */}
-      {gameOver && (
+      {/* Game Over Modal */}
+      {gameOverModalShow && (
         <div
           style={{
             position: "fixed",
             inset: 0,
-            background: showGameOverTitle ? "rgba(0,0,0,0.72)" : "transparent",
-            pointerEvents: showGameOverTitle ? "auto" : "none",
+            background: "rgba(0,0,0,0.92)",
             display: "flex",
+            flexDirection: "column",
             alignItems: "center",
             justifyContent: "center",
             zIndex: 2000,
-            animation: "fadeIn 0.3s ease",
-            overflow: "hidden",
           }}
         >
-          {/* Fireworks */}
-          {fireworks.map((fw) => (
-            <div key={fw.id} className="firework" style={{ left: `${fw.x}%`, top: `${fw.y}%`, "--fw-color": fw.color } as React.CSSProperties}>
-              {Array.from({ length: 12 }, (_, i) => (
-                <span key={i} className="fireworkParticle" style={{ "--fw-rot": `${i * 30}deg`, "--fw-color": fw.color } as React.CSSProperties} />
-              ))}
-            </div>
-          ))}
-          <div
+          <h2
             style={{
-              background: theme.headerBg,
-              borderRadius: 24,
-              padding: "40px 48px",
-              textAlign: "center",
-              maxWidth: 360,
-              width: "90%",
-              boxShadow: showGameOverTitle ? `0 20px 60px rgba(0,0,0,0.5)` : "none",
-              opacity: showGameOverTitle ? 1 : 0,
-              transform: showGameOverTitle ? "translateY(0) scale(1)" : "translateY(24px) scale(0.92)",
-              transition: "opacity 0.35s ease, transform 0.45s cubic-bezier(0.16, 1, 0.3, 1)",
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
+              fontSize: 42,
+              fontWeight: 900,
+              color: gameOverColor,
+              marginBottom: 15,
+              letterSpacing: 2,
+              textShadow: `0 0 15px ${gameOverColor}`,
+              animation: "blinkGameOver 1s infinite ease-in-out",
             }}
           >
-            {showGameOverTitle ? (
-              <>
-                {showLevelUp ? (
-                  <>
-                    <div style={{ fontSize: 64, marginBottom: 8, animation: "comboPop 0.5s ease" }}>🎆</div>
-                    <h2 style={{ fontSize: 36, fontWeight: 900, fontFamily: "'Fredoka', sans-serif", margin: "0 0 4px 0", color: "#ffd447", animation: "comboPop 0.3s ease", textAlign: "center" }}>
-                      KAZANDINIZ!
-                    </h2>
-                    <div style={{ fontSize: 18, opacity: 0.8, marginBottom: 20, textAlign: "center" }}>
-                      Serüven {adventureLevel} tamamlandı!
-                    </div>
-                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: "100%", margin: "4px 0 16px" }}>
-                      <div style={{ fontSize: 16, lineHeight: 1.2, opacity: 0.7, marginBottom: 6, textAlign: "center" }}>Skorun</div>
-                      <div style={{ fontSize: 56, lineHeight: 1, fontWeight: 900, fontFamily: "'Fredoka', sans-serif", color: theme.textColor, textAlign: "center" }}>
-                        {score}
-                      </div>
-                    </div>
-                    <div style={{ fontSize: 18, marginBottom: 28, fontWeight: 700, textAlign: "center" }}>
-                      🪙 {coinsEarned} coin kazandın!
-                    </div>
-                    <div style={{ fontSize: 16, opacity: 0.6, fontWeight: 700, textAlign: "center" }}>
-                      Sonraki serüvene geçiliyor...
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <h2 style={{ fontSize: 32, fontWeight: 900, fontFamily: "'Fredoka', sans-serif", margin: "0 0 4px 0", color: theme.accent, animation: "comboPop 0.3s ease", textAlign: "center" }}>
-                      Oyun Bitti!
-                    </h2>
-                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: "100%", margin: "4px 0 20px" }}>
-                      <div style={{ fontSize: 14, lineHeight: 1.2, opacity: 0.6, marginBottom: 6, textAlign: "center" }}>Skorun</div>
-                      <div style={{ fontSize: 48, lineHeight: 1, fontWeight: 900, fontFamily: "'Fredoka', sans-serif", color: theme.textColor, textAlign: "center" }}>
-                        {score}
-                      </div>
-                    </div>
-                    <div style={{ fontSize: 18, marginBottom: 28, fontWeight: 700, textAlign: "center" }}>
-                      🪙 {coinsEarned} coin kazandın!
-                    </div>
-                    {showGameOverButtons ? (
-                      <div style={{ display: "flex", gap: 12, flexDirection: "column", animation: "fadeIn 0.4s ease" }}>
-                        <button onClick={handleRestart} style={{ background: theme.accent, color: "#fff", border: "none", borderRadius: 14, padding: "14px 32px", fontSize: 18, fontWeight: 800, fontFamily: "'Nunito', sans-serif", cursor: "pointer", transition: "transform 0.15s, box-shadow 0.15s" }}>
-                          Tekrar Oyna
-                        </button>
-                        <button onClick={() => onGameOver(score, coinsEarned, false, { maxCombo: maxComboRef.current, maxMultiClear: maxMultiClearRef.current, blocksPlaced: blocksPlacedRef.current })} style={{ background: "rgba(255,255,255,0.1)", color: theme.textColor, border: "none", borderRadius: 14, padding: "12px 32px", fontSize: 16, fontWeight: 700, fontFamily: "'Nunito', sans-serif", cursor: "pointer", transition: "background 0.2s" }}>
-                          Menüye Dön
-                        </button>
-                      </div>
-                    ) : (
-                      <div style={{ fontSize: 15, opacity: 0.5, fontWeight: 700 }}>...</div>
-                    )}
-                  </>
-                )}
-              </>
-            ) : null}
-          </div>
+            GAME OVER
+          </h2>
+          <p
+            style={{
+              fontSize: 24,
+              color: "#fff",
+              marginBottom: 30,
+              fontWeight: 700,
+            }}
+          >
+            SKOR: {score}
+          </p>
+          <button
+            onClick={handleRestart}
+            style={{
+              padding: "14px 36px",
+              fontSize: 20,
+              fontWeight: "bold",
+              background: "#22c55e",
+              color: "#fff",
+              border: "none",
+              borderRadius: 30,
+              cursor: "pointer",
+              boxShadow: "0 0 15px #22c55e",
+            }}
+          >
+            TEKRAR OYNA
+          </button>
         </div>
       )}
     </div>

@@ -175,23 +175,6 @@ export default function MenuScreen({
           </div>
         </div>
 
-        {/* Coins display */}
-        <div
-          style={{
-            background: "rgba(255,255,255,0.06)",
-            borderRadius: 14,
-            padding: "10px 20px",
-            marginBottom: 28,
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 8,
-            fontWeight: 800,
-            fontSize: 18,
-          }}
-        >
-          🪙 {coins} Coin
-        </div>
-
         {/* Play button */}
         <button
           onClick={onPlay}
@@ -265,10 +248,11 @@ export default function MenuScreen({
 
         {/* More Games button */}
         <button
-          onClick={onMoreGames}
+          onClick={undefined}
+          disabled
           style={{
             width: "100%",
-            background: "rgba(255,255,255,0.06)",
+            background: "rgba(255,255,255,0.04)",
             color: theme.textColor,
             border: "none",
             borderRadius: 14,
@@ -276,15 +260,17 @@ export default function MenuScreen({
             fontSize: 16,
             fontWeight: 700,
             fontFamily: "'Nunito', sans-serif",
-            cursor: "pointer",
+            cursor: "not-allowed",
             marginTop: 12,
-            transition: "background 0.2s, transform 0.15s",
+            opacity: 0.6,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 8,
           }}
-          onMouseDown={(e) => (e.currentTarget.style.transform = "scale(0.97)")}
-          onMouseUp={(e) => (e.currentTarget.style.transform = "scale(1)")}
-          onMouseLeave={(e) => (e.currentTarget.style.transform = "scale(1)")}
         >
-          🎮 Diğer Oyunlar
+          <span>🎮 Diğer Oyunlar</span>
+          <span style={{ fontSize: 11, background: "rgba(255,189,32,0.2)", color: "#ffbd20", padding: "2px 8px", borderRadius: 8 }}>Pek Yakında</span>
         </button>
 
         <button
@@ -342,7 +328,6 @@ export default function MenuScreen({
               </button>
             </div>
             {[
-              { key: "music_enabled" as const, label: "Müzik", icon: "♫", value: musicEnabled },
               { key: "sound_enabled" as const, label: "Ses Efektleri", icon: "🔊", value: soundEnabled },
               { key: "vibration_enabled" as const, label: "Titreşim", icon: "▦", value: vibrationEnabled },
             ].map((setting) => (

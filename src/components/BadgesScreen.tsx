@@ -30,8 +30,9 @@ const BADGES = [
 ];
 
 export default function BadgesScreen({ theme, badges, onBack }: BadgesScreenProps) {
+  const resetBadges: string[] = [];
   return (
-    <div style={{ minHeight: "100vh", background: theme.bgColor, color: theme.textColor, fontFamily: "'Nunito', sans-serif", padding: 20, boxSizing: "border-box" }}>
+    <div style={{ minHeight: "100vh", maxHeight: "100vh", overflowY: "auto", background: theme.bgColor, color: theme.textColor, fontFamily: "'Nunito', sans-serif", padding: 20, boxSizing: "border-box" }}>
       <div style={{ maxWidth: 460, width: "100%", margin: "0 auto" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
           <button onClick={onBack} style={{ background: "rgba(255,255,255,0.1)", color: theme.textColor, border: "none", borderRadius: 12, padding: "10px 16px", fontWeight: 800, fontSize: 16, cursor: "pointer" }}>‹ Geri</button>
@@ -39,11 +40,11 @@ export default function BadgesScreen({ theme, badges, onBack }: BadgesScreenProp
           <div style={{ width: 70 }} />
         </div>
         <div style={{ textAlign: "center", marginBottom: 24, opacity: 0.7, fontWeight: 700 }}>
-          {badges.length} / {BADGES.length} rozet kazanıldı
+          {resetBadges.length} / {BADGES.length} rozet kazanıldı
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, paddingBottom: 20 }}>
           {BADGES.map((badge) => {
-            const earned = badges.includes(badge.id);
+            const earned = resetBadges.includes(badge.id);
             return (
               <div
                 key={badge.id}

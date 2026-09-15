@@ -22,6 +22,11 @@ import {
 
 type Screen = "menu" | "game" | "adventure" | "badges" | "leaderboard" | "more-games" | "tic-tac-toe" | "water-sort" | "onet" | "sudoku" | "block-slide";
 
+const getLocalBestScore = () => {
+  const stored = localStorage.getItem("bestScore");
+  return stored ? parseInt(stored, 10) : 0;
+};
+
 export default function App() {
   const [screen, setScreen] = useState<Screen>("menu");
   const [profile, setProfile] = useState<PlayerProfile | null>(null);
@@ -38,18 +43,44 @@ export default function App() {
   // Load profile
   useEffect(() => {
     (async () => {
-      const p = await getProfile();
+      const storedBest = getLocalBestScore();
+      let p: PlayerProfile | null = null;
+      try {
+        p = await getProfile();
+      } catch (e) {
+        console.error(e);
+      }
+
+      const defaultProfile: PlayerProfile = {
+        id: "local",
+        player_name: localStorage.getItem("playerName") || "Player",
+        coins: parseInt(localStorage.getItem("coins") || "0", 10),
+        best_score: storedBest,
+        adventure_level: parseInt(localStorage.getItem("adventureLevel") || "1", 10),
+        badges: JSON.parse(localStorage.getItem("badges") || "[]"),
+        total_blocks_placed: parseInt(localStorage.getItem("totalBlocksPlaced") || "0", 10),
+        current_theme: localStorage.getItem("currentTheme") || "classic",
+        music_enabled: true,
+        sound_enabled: true,
+        vibration_enabled: true,
+      };
+
       if (p) {
-        setProfile(p);
-        // Load owned themes from localStorage
-        const stored = localStorage.getItem("ownedThemes");
-        if (stored) {
-          try {
-            const parsed = JSON.parse(stored) as string[];
-            setOwnedThemes(parsed.includes("classic") ? parsed : ["classic", ...parsed.filter((t) => t !== "classic")]);
-          } catch {
-            setOwnedThemes(["classic"]);
-          }
+        const finalBest = Math.max(p.best_score || 0, storedBest);
+        localStorage.setItem("bestScore", finalBest.toString());
+        setProfile({ ...p, best_score: finalBest });
+      } else {
+        setProfile(defaultProfile);
+      }
+
+      // Load owned themes from localStorage
+      const stored = localStorage.getItem("ownedThemes");
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored) as string[];
+          setOwnedThemes(parsed.includes("classic") ? parsed : ["classic", ...parsed.filter((t) => t !== "classic")]);
+        } catch {
+          setOwnedThemes(["classic"]);
         }
       }
       setLoading(false);
@@ -64,12 +95,31 @@ export default function App() {
 
   const handleGameOver = useCallback(
     async (score: number, coinsEarned: number, levelCompleted: boolean, stats: { maxCombo: number; maxMultiClear: number; blocksPlaced: number }) => {
-      if (!profile) return;
-      const newCoins = profile.coins + coinsEarned;
-      const newBest = Math.max(profile.best_score, score);
-      const totalBlocksPlaced = (profile.total_blocks_placed || 0) + stats.blocksPlaced;
+      const activeProfile = profile || {
+        id: "local",
+        player_name: localStorage.getItem("playerName") || "Player",
+        coins: parseInt(localStorage.getItem("coins") || "0", 10),
+        best_score: getLocalBestScore(),
+        adventure_level: parseInt(localStorage.getItem("adventureLevel") || "1", 10),
+        badges: JSON.parse(localStorage.getItem("badges") || "[]"),
+        total_blocks_placed: parseInt(localStorage.getItem("totalBlocksPlaced") || "0", 10),
+        current_theme: localStorage.getItem("currentTheme") || "classic",
+        music_enabled: true,
+        sound_enabled: true,
+        vibration_enabled: true,
+      };
 
-      const newBadges = [...profile.badges];
+      const storedBest = getLocalBestScore();
+      const newBest = Math.max(activeProfile.best_score || 0, score, storedBest);
+      const newCoins = activeProfile.coins + coinsEarned;
+      const totalBlocksPlaced = (activeProfile.total_blocks_placed || 0) + stats.blocksPlaced;
+
+      // Yerel hafızayı güncelle
+      localStorage.setItem("bestScore", newBest.toString());
+      localStorage.setItem("coins", newCoins.toString());
+      localStorage.setItem("totalBlocksPlaced", totalBlocksPlaced.toString());
+
+      const newBadges = [...activeProfile.badges];
       const addBadge = (id: string, condition: boolean) => {
         if (condition && !newBadges.includes(id)) newBadges.push(id);
       };
@@ -90,17 +140,21 @@ export default function App() {
       addBadge("place-50", totalBlocksPlaced >= 50);
       addBadge("place-200", totalBlocksPlaced >= 200);
 
-      let newLevel = profile.adventure_level;
+      localStorage.setItem("badges", JSON.stringify(newBadges));
+
+      let newLevel = activeProfile.adventure_level;
       if (levelCompleted && gameMode === "adventure") {
-        newLevel = Math.min(100, profile.adventure_level + 1);
+        newLevel = Math.min(100, activeProfile.adventure_level + 1);
         addBadge("level-10", newLevel >= 10);
         addBadge("level-25", newLevel >= 25);
         addBadge("level-50", newLevel >= 50);
         addBadge("level-75", newLevel >= 75);
         addBadge("level-100", newLevel >= 100);
+        localStorage.setItem("adventureLevel", newLevel.toString());
       }
 
-      await updateProfile({
+      setProfile({
+        ...activeProfile,
         coins: newCoins,
         best_score: newBest,
         adventure_level: newLevel,
@@ -108,9 +162,19 @@ export default function App() {
         total_blocks_placed: totalBlocksPlaced,
       });
 
-      await submitScore(profile.player_name, score, coinsEarned);
+      try {
+        await updateProfile({
+          coins: newCoins,
+          best_score: newBest,
+          adventure_level: newLevel,
+          badges: newBadges,
+          total_blocks_placed: totalBlocksPlaced,
+        });
+        await submitScore(activeProfile.player_name, score, coinsEarned);
+      } catch (e) {
+        console.error(e);
+      }
 
-      setProfile({ ...profile, coins: newCoins, best_score: newBest, adventure_level: newLevel, badges: newBadges, total_blocks_placed: totalBlocksPlaced });
       if (levelCompleted && gameMode === "adventure") {
         setGameLevel(newLevel);
         setScreen("game");
@@ -155,13 +219,16 @@ export default function App() {
   );
 
   const handleSaveName = useCallback(() => {
-    if (!profile || !tempName.trim()) {
+    if (!tempName.trim()) {
       setEditingName(false);
       return;
     }
     const name = tempName.trim().slice(0, 20);
-    setProfile({ ...profile, player_name: name });
-    updateProfile({ player_name: name });
+    localStorage.setItem("playerName", name);
+    if (profile) {
+      setProfile({ ...profile, player_name: name });
+      updateProfile({ player_name: name });
+    }
     setEditingName(false);
   }, [profile, tempName]);
 
@@ -244,12 +311,73 @@ export default function App() {
       )}
 
       {screen === "adventure" && (
-        <AdventureScreen
-          theme={currentTheme}
-          currentLevel={profile?.adventure_level || 1}
-          onBack={() => setScreen("menu")}
-          onPlay={() => handlePlay(profile?.adventure_level || 1, "adventure")}
-        />
+        <div style={{ position: "relative" }}>
+          <AdventureScreen
+            theme={currentTheme}
+            currentLevel={profile?.adventure_level || 1}
+            onBack={() => setScreen("menu")}
+            onPlay={() => {}}
+          />
+          <div
+            style={{
+              position: "fixed",
+              inset: 0,
+              background: "rgba(15, 21, 37, 0.8)",
+              backdropFilter: "blur(6px)",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              zIndex: 999,
+              color: "#fff",
+              padding: 20,
+              textAlign: "center",
+            }}
+          >
+            <div
+              style={{
+                background: "linear-gradient(135deg, #ff9f43, #ff5252)",
+                padding: "16px 36px",
+                borderRadius: 24,
+                fontSize: 28,
+                fontWeight: 900,
+                fontFamily: "'Fredoka', sans-serif",
+                boxShadow: "0 10px 30px rgba(255, 82, 82, 0.4)",
+                marginBottom: 16,
+                letterSpacing: 1,
+              }}
+            >
+              🔒 PEK YAKINDA
+            </div>
+            <p
+              style={{
+                fontFamily: "'Nunito', sans-serif",
+                fontSize: 16,
+                opacity: 0.85,
+                maxWidth: 280,
+                margin: "0 0 24px 0",
+              }}
+            >
+              Serüven modu çok yakında hizmetinizde olacaktır.
+            </p>
+            <button
+              onClick={() => setScreen("menu")}
+              style={{
+                background: "rgba(255, 255, 255, 0.15)",
+                color: "#fff",
+                border: "1px solid rgba(255, 255, 255, 0.2)",
+                borderRadius: 14,
+                padding: "12px 28px",
+                fontWeight: 800,
+                fontSize: 16,
+                cursor: "pointer",
+                fontFamily: "'Nunito', sans-serif",
+              }}
+            >
+              ‹ Ana Menüye Dön
+            </button>
+          </div>
+        </div>
       )}
 
       {screen === "badges" && (
@@ -270,11 +398,72 @@ export default function App() {
       )}
 
       {screen === "more-games" && (
-        <MoreGamesScreen
-          theme={currentTheme}
-          onBack={() => setScreen("menu")}
-          onSelectGame={(gameId) => setScreen(gameId as Screen)}
-        />
+        <div style={{ position: "relative" }}>
+          <MoreGamesScreen
+            theme={currentTheme}
+            onBack={() => setScreen("menu")}
+            onSelectGame={() => {}}
+          />
+          <div
+            style={{
+              position: "fixed",
+              inset: 0,
+              background: "rgba(15, 21, 37, 0.8)",
+              backdropFilter: "blur(6px)",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              zIndex: 999,
+              color: "#fff",
+              padding: 20,
+              textAlign: "center",
+            }}
+          >
+            <div
+              style={{
+                background: "linear-gradient(135deg, #ff9f43, #ff5252)",
+                padding: "16px 36px",
+                borderRadius: 24,
+                fontSize: 28,
+                fontWeight: 900,
+                fontFamily: "'Fredoka', sans-serif",
+                boxShadow: "0 10px 30px rgba(255, 82, 82, 0.4)",
+                marginBottom: 16,
+                letterSpacing: 1,
+              }}
+            >
+              🔒 PEK YAKINDA
+            </div>
+            <p
+              style={{
+                fontFamily: "'Nunito', sans-serif",
+                fontSize: 16,
+                opacity: 0.85,
+                maxWidth: 280,
+                margin: "0 0 24px 0",
+              }}
+            >
+              Diğer oyunlar çok yakında hizmetinizde olacaktır.
+            </p>
+            <button
+              onClick={() => setScreen("menu")}
+              style={{
+                background: "rgba(255, 255, 255, 0.15)",
+                color: "#fff",
+                border: "1px solid rgba(255, 255, 255, 0.2)",
+                borderRadius: 14,
+                padding: "12px 28px",
+                fontWeight: 800,
+                fontSize: 16,
+                cursor: "pointer",
+                fontFamily: "'Nunito', sans-serif",
+              }}
+            >
+              ‹ Ana Menüye Dön
+            </button>
+          </div>
+        </div>
       )}
 
       {screen === "tic-tac-toe" && (
