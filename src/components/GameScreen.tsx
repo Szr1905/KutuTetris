@@ -271,7 +271,6 @@ const getValidShapes = (
     return valid;
   }
 
-  // Seviye hedef blok sayısı hesaplama: Seviye 1-3 için 15, Seviye 4+ için 15 + (Level - 3) * 3
   const targetBlocks = level <= 3 ? 15 : 15 + (level - 3) * 3;
   const isSaverPhase = levelBlocksPlaced >= targetBlocks;
 
@@ -302,7 +301,6 @@ const getValidShapes = (
     }
   }
 
-  // Normal Akış (Hedef sayıya ulaşılmadıysa): 2 Kurtarıcı + 1 Rastgele Şekil
   if (!isSaverPhase && valid.length >= 3) {
     const saverShapes = valid.slice(0, 2);
     let randomShape = getRandomShapeWithAdvanced(effectiveLevel);
@@ -317,7 +315,6 @@ const getValidShapes = (
     return [...saverShapes, randomShape];
   }
 
-  // Kurtarıcı Fazı (Hedef aşıldıysa) veya eksik kalınırsa tamamlama: %100 Kurtarıcı Şekiller
   while (valid.length < 3) {
     const shape = getRandomShapeWithAdvanced(effectiveLevel);
     if (
@@ -363,6 +360,39 @@ export default function GameScreen({
   const [levelUpText, setLevelUpText] = useState<string | null>(null);
   const [isSweepActive, setIsSweepActive] = useState(false);
 
+  const audioCacheRef = useRef<Record<string, HTMLAudioElement>>({});
+
+  useEffect(() => {
+    const soundFiles = [
+      "bolumbitimi.mp3",
+      "victory.mp3",
+      "baslangic.mp3",
+      "blokcekme.mp3",
+      "blokbirakma.wav",
+      "masadolumu.mp3",
+      "5bolumgameover.mp3",
+      "gameover.mp3",
+      "satirsutun2.mp3",
+      "2blok.mp3",
+      "3blok.mp3",
+      "combo.wav",
+      "combo2.mp3",
+      "satir.mp3",
+      "woov.mp3",
+      "ilginc.mp3",
+      "yenioyun.mp3",
+      "yenioyun2.mp3",
+    ];
+
+    soundFiles.forEach((file) => {
+      if (!audioCacheRef.current[file]) {
+        const audio = new Audio(`/${file}`);
+        audio.preload = "auto";
+        audioCacheRef.current[file] = audio;
+      }
+    });
+  }, []);
+
   useEffect(() => {
     if (soundEnabled && !startSoundPlayed.current) {
       startSoundPlayed.current = true;
@@ -371,13 +401,13 @@ export default function GameScreen({
     }
   }, [soundEnabled]);
 
-  const audioCacheRef = useRef<Record<string, HTMLAudioElement>>({});
-
   const playAudioFile = useCallback((filename: string) => {
     if (!soundEnabled) return;
     try {
       if (!audioCacheRef.current[filename]) {
-        audioCacheRef.current[filename] = new Audio(`/${filename}`);
+        const audio = new Audio(`/${filename}`);
+        audio.preload = "auto";
+        audioCacheRef.current[filename] = audio;
       }
       const audio = audioCacheRef.current[filename];
       audio.currentTime = 0;
@@ -1057,12 +1087,12 @@ export default function GameScreen({
       const relX = shapeLeft - gridLeft;
       const relY = shapeTop - gridTop;
 
-      const col = Math.round(relX / totalCellSize);
-      const row = Math.round(relY / totalCellSize);
+      const col = Math.floor((relX + cellSize / 2) / totalCellSize);
+      const row = Math.floor((relY + cellSize / 2) / totalCellSize);
 
       return { row, col };
     },
-    [totalCellSize, gap]
+    [totalCellSize, cellSize, gap]
   );
 
   const handlePointerDown = (
@@ -1363,6 +1393,8 @@ export default function GameScreen({
           border-bottom: 2.5px solid rgba(0, 0, 0, 0.6);
           box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15), 0 3px 6px rgba(0, 0, 0, 0.35);
           filter: brightness(1.1) saturate(1.2);
+          will-change: transform;
+          transform: translateZ(0);
         }
         @keyframes shake {
           0% { transform: translate(0, 0); }
@@ -1418,48 +1450,127 @@ export default function GameScreen({
         }
       `}</style>
 
-      {/* Üst Bar / Skor Tabela */}
+      {/* Üst Bar / Skor Tabela (Görsele Uygun Yeni Tasarım) */}
       <div
         style={{
           width: "100%",
-          maxWidth: 460,
+          maxWidth: 380,
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          padding: "20px 22px 12px",
+          padding: "16px 20px 10px",
           boxSizing: "border-box",
         }}
       >
+        {/* Sol tarafta dengelenme için boş alan */}
+        <div style={{ width: 32 }} />
+
+        {/* Görseldeki Çift Daireli Skor Çubuğu */}
+        <div
+          style={{
+            position: "relative",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            minWidth: 150,
+            height: 48,
+          }}
+        >
+          {/* İki Daireyi Birleştiren Çubuk */}
+          <div
+            style={{
+              position: "absolute",
+              width: "100px",
+              height: "12px",
+              background: "rgba(30, 42, 68, 0.9)",
+              borderRadius: "6px",
+              border: "1.5px solid rgba(255, 255, 255, 0.15)",
+              boxShadow: "inset 0 2px 4px rgba(0,0,0,0.5)",
+              zIndex: 1,
+            }}
+          />
+
+          {/* Sol Daire: Anlık Skor */}
+          <div
+            style={{
+              position: "relative",
+              zIndex: 2,
+              marginRight: "32px",
+              width: "48px",
+              height: "48px",
+              borderRadius: "50%",
+              background: "radial-gradient(circle at 35% 35%, #38bdf8 0%, #0284c7 100%)",
+              border: "3px solid #001e38",
+              boxShadow: "0 4px 10px rgba(0,0,0,0.4), inset 0 2px 4px rgba(255,255,255,0.4)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color: "#ffffff",
+              fontWeight: 900,
+              fontSize: "17px",
+              letterSpacing: "-0.5px",
+            }}
+          >
+            {displayScore}
+          </div>
+
+          {/* Sağ Daire: En Yüksek Skor */}
+          <div
+            style={{
+              position: "relative",
+              zIndex: 2,
+              width: "48px",
+              height: "48px",
+              borderRadius: "50%",
+              background: "radial-gradient(circle at 35% 35%, #f97316 0%, #ea580c 100%)",
+              border: "3px solid #381200",
+              boxShadow: "0 4px 10px rgba(0,0,0,0.4), inset 0 2px 4px rgba(255,255,255,0.4)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color: "#ffffff",
+              fontWeight: 900,
+              fontSize: "16px",
+              letterSpacing: "-0.5px",
+            }}
+          >
+            {Math.max(currentBestScore, score)}
+          </div>
+        </div>
+
+        {/* En Sağda Ayarlar / Menü Çark İkonu */}
         <button
           onClick={onExit}
           aria-label="Menüye dön"
           style={{
             background: "transparent",
             border: "none",
-            color: "#d7efff",
-            fontSize: 38,
-            lineHeight: 1,
+            color: "#e2e8f0",
             cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 4,
+            opacity: 0.9,
+            transition: "transform 0.2s ease, opacity 0.2s ease",
           }}
+          onMouseDown={(e) => (e.currentTarget.style.transform = "scale(0.9)")}
+          onMouseUp={(e) => (e.currentTarget.style.transform = "scale(1)")}
         >
-          ‹
+          <svg
+            width="28"
+            height="28"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+          </svg>
         </button>
-        <div style={{ textAlign: "center" }}>
-          <div style={{ fontSize: 13, textTransform: "uppercase", letterSpacing: 1, opacity: 0.8 }}>
-            SKOR
-          </div>
-          <div style={{ fontSize: 32, fontWeight: 900, color: "#fff" }}>
-            {displayScore}
-          </div>
-        </div>
-        <div style={{ textAlign: "right" }}>
-          <div style={{ fontSize: 13, textTransform: "uppercase", letterSpacing: 1, opacity: 0.8 }}>
-            SEVİYE {gameDifficulty}
-          </div>
-          <div style={{ fontSize: 20, fontWeight: 800, color: "#ffd447" }}>
-            EN İYİ: {Math.max(currentBestScore, score)}
-          </div>
-        </div>
       </div>
 
       {/* Oyun Tahtası (8x8) */}
@@ -1480,6 +1591,7 @@ export default function GameScreen({
             : "none",
           transition: "border 0.3s ease",
           overflow: "visible",
+          touchAction: "none",
         }}
       >
         {isFiftyFivePercentFull && (
@@ -1737,6 +1849,7 @@ export default function GameScreen({
           marginTop: 25,
           padding: "0 10px",
           boxSizing: "border-box",
+          touchAction: "none",
         }}
       >
         {shapes.map((shape, index) => (
@@ -1753,6 +1866,7 @@ export default function GameScreen({
               justifyContent: "center",
               cursor: shape ? "grab" : "default",
               opacity: drag?.shapeIndex === index ? 0.3 : 1,
+              touchAction: "none",
             }}
           >
             {shape && (

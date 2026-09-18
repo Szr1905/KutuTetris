@@ -21,6 +21,7 @@ import {
 } from "./lib/supabase";
 
 type Screen = "menu" | "game" | "adventure" | "badges" | "leaderboard" | "more-games" | "tic-tac-toe" | "water-sort" | "onet" | "sudoku" | "block-slide";
+type Language = "tr" | "en";
 
 const getLocalBestScore = () => {
   const stored = localStorage.getItem("bestScore");
@@ -38,7 +39,18 @@ export default function App() {
   const [gameLevel, setGameLevel] = useState(1);
   const [gameMode, setGameMode] = useState<"main" | "adventure">("main");
 
+  // Language state (Default: TR)
+  const [language, setLanguage] = useState<Language>(() => {
+    const savedLang = localStorage.getItem("kutu_tetris_language");
+    return (savedLang as Language) || "tr";
+  });
+
   const currentTheme = profile ? getTheme(profile.current_theme) : THEMES[0];
+
+  const handleLanguageChange = useCallback((newLang: Language) => {
+    setLanguage(newLang);
+    localStorage.setItem("kutu_tetris_language", newLang);
+  }, []);
 
   // Load profile
   useEffect(() => {
@@ -92,6 +104,23 @@ export default function App() {
     setGameMode(mode);
     setScreen("game");
   };
+
+  const handleScoreUpdate = useCallback(
+    (newScore: number) => {
+      setProfile((prevProfile) => {
+        const currentBest = prevProfile?.best_score || getLocalBestScore();
+        if (newScore > currentBest) {
+          localStorage.setItem("bestScore", newScore.toString());
+          if (prevProfile) {
+            updateProfile({ best_score: newScore }).catch(console.error);
+            return { ...prevProfile, best_score: newScore };
+          }
+        }
+        return prevProfile;
+      });
+    },
+    []
+  );
 
   const handleGameOver = useCallback(
     async (score: number, coinsEarned: number, levelCompleted: boolean, stats: { maxCombo: number; maxMultiClear: number; blocksPlaced: number }) => {
@@ -282,6 +311,8 @@ export default function App() {
           playerName={profile?.player_name || "Player"}
           coins={profile?.coins || 0}
           bestScore={profile?.best_score || 0}
+          language={language}
+          onLanguageChange={handleLanguageChange}
           onPlay={() => handlePlay(1, "main")}
           onShop={() => setScreen("badges")}
           onLeaderboard={() => setScreen("adventure")}
@@ -308,6 +339,7 @@ export default function App() {
           vibrationEnabled={profile?.vibration_enabled ?? true}
           onExit={() => setScreen("menu")}
           onGameOver={handleGameOver}
+          onScoreChange={handleScoreUpdate}
         />
       )}
 
@@ -348,7 +380,7 @@ export default function App() {
                 letterSpacing: 1,
               }}
             >
-              🔒 PEK YAKINDA
+              🔒 {language === "en" ? "COMING SOON" : "PEK YAKINDA"}
             </div>
             <p
               style={{
@@ -359,7 +391,9 @@ export default function App() {
                 margin: "0 0 24px 0",
               }}
             >
-              Serüven modu çok yakında hizmetinizde olacaktır.
+              {language === "en"
+                ? "Adventure mode will be available very soon."
+                : "Serüven modu çok yakında hizmetinizde olacaktır."}
             </p>
             <button
               onClick={() => setScreen("menu")}
@@ -375,7 +409,7 @@ export default function App() {
                 fontFamily: "'Nunito', sans-serif",
               }}
             >
-              ‹ Ana Menüye Dön
+              ‹ {language === "en" ? "Back to Menu" : "Ana Menüye Dön"}
             </button>
           </div>
         </div>
@@ -434,7 +468,7 @@ export default function App() {
                 letterSpacing: 1,
               }}
             >
-              🔒 PEK YAKINDA
+              🔒 {language === "en" ? "COMING SOON" : "PEK YAKINDA"}
             </div>
             <p
               style={{
@@ -445,7 +479,9 @@ export default function App() {
                 margin: "0 0 24px 0",
               }}
             >
-              Diğer oyunlar çok yakında hizmetinizde olacaktır.
+              {language === "en"
+                ? "Other games will be available very soon."
+                : "Diğer oyunlar çok yakında hizmetinizde olacaktır."}
             </p>
             <button
               onClick={() => setScreen("menu")}
@@ -461,7 +497,7 @@ export default function App() {
                 fontFamily: "'Nunito', sans-serif",
               }}
             >
-              ‹ Ana Menüye Dön
+              ‹ {language === "en" ? "Back to Menu" : "Ana Menüye Dön"}
             </button>
           </div>
         </div>
@@ -534,7 +570,7 @@ export default function App() {
           >
             <div style={{ fontSize: 32, marginBottom: 12 }}>✏️</div>
             <h3 style={{ fontSize: 20, fontWeight: 800, margin: "0 0 20px 0", color: currentTheme.textColor }}>
-              İsim Değiştir
+              {language === "en" ? "Change Name" : "İsim Değiştir"}
             </h3>
             <input
               type="text"
@@ -558,7 +594,7 @@ export default function App() {
                 marginBottom: 20,
                 textAlign: "center",
               }}
-              placeholder="İsmin..."
+              placeholder={language === "en" ? "Your name..." : "İsmin..."}
             />
             <div style={{ display: "flex", gap: 10 }}>
               <button
@@ -576,7 +612,7 @@ export default function App() {
                   fontFamily: "'Nunito', sans-serif",
                 }}
               >
-                İptal
+                {language === "en" ? "Cancel" : "İptal"}
               </button>
               <button
                 onClick={handleSaveName}
@@ -593,7 +629,7 @@ export default function App() {
                   fontFamily: "'Nunito', sans-serif",
                 }}
               >
-                Kaydet
+                {language === "en" ? "Save" : "Kaydet"}
               </button>
             </div>
           </div>

@@ -33,6 +33,39 @@ export default function MenuScreen({
   onEditName,
 }: MenuScreenProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [lang, setLang] = useState<"tr" | "en">("tr");
+
+  const t = {
+    tr: {
+      player: "Oyuncu",
+      best: "En İyi",
+      play: "▶ Oyna",
+      badges: "🛒 Rozetler",
+      adventure: "🏆 Serüven",
+      moreGames: "🎮 Diğer Oyunlar",
+      comingSoon: "Pek Yakında",
+      settings: "⚙ Ayarlar",
+      settingsTitle: "Ayarlar",
+      soundEffects: "Ses Efektleri",
+      vibration: "Titreşim",
+      language: "Dil / Language",
+    },
+    en: {
+      player: "Player",
+      best: "Best",
+      play: "▶ Play",
+      badges: "🛒 Badges",
+      adventure: "🏆 Adventure",
+      moreGames: "🎮 More Games",
+      comingSoon: "Coming Soon",
+      settings: "⚙ Settings",
+      settingsTitle: "Settings",
+      soundEffects: "Sound Effects",
+      vibration: "Vibration",
+      language: "Language / Dil",
+    },
+  }[lang];
+
   return (
     <div
       style={{
@@ -146,7 +179,7 @@ export default function MenuScreen({
             <div
               style={{ fontSize: 13, opacity: 0.6, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1 }}
             >
-              Oyuncu
+              {t.player}
             </div>
             <div
               onClick={onEditName}
@@ -167,7 +200,7 @@ export default function MenuScreen({
             <div
               style={{ fontSize: 13, opacity: 0.6, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1 }}
             >
-              En İyi
+              {t.best}
             </div>
             <div style={{ fontSize: 18, fontWeight: 800, color: theme.accent }}>
               {bestScore}
@@ -197,7 +230,7 @@ export default function MenuScreen({
           onMouseUp={(e) => (e.currentTarget.style.transform = "scale(1)")}
           onMouseLeave={(e) => (e.currentTarget.style.transform = "scale(1)")}
         >
-          ▶ Oyna
+          {t.play}
         </button>
 
         {/* Secondary buttons */}
@@ -221,7 +254,7 @@ export default function MenuScreen({
             onMouseUp={(e) => (e.currentTarget.style.transform = "scale(1)")}
             onMouseLeave={(e) => (e.currentTarget.style.transform = "scale(1)")}
           >
-            🛒 Rozetler
+            {t.badges}
           </button>
           <button
             onClick={onLeaderboard}
@@ -242,7 +275,7 @@ export default function MenuScreen({
             onMouseUp={(e) => (e.currentTarget.style.transform = "scale(1)")}
             onMouseLeave={(e) => (e.currentTarget.style.transform = "scale(1)")}
           >
-            🏆 Serüven
+            {t.adventure}
           </button>
         </div>
 
@@ -269,8 +302,8 @@ export default function MenuScreen({
             gap: 8,
           }}
         >
-          <span>🎮 Diğer Oyunlar</span>
-          <span style={{ fontSize: 11, background: "rgba(255,189,32,0.2)", color: "#ffbd20", padding: "2px 8px", borderRadius: 8 }}>Pek Yakında</span>
+          <span>{t.moreGames}</span>
+          <span style={{ fontSize: 11, background: "rgba(255,189,32,0.2)", color: "#ffbd20", padding: "2px 8px", borderRadius: 8 }}>{t.comingSoon}</span>
         </button>
 
         <button
@@ -289,7 +322,7 @@ export default function MenuScreen({
             opacity: 0.75,
           }}
         >
-          ⚙ Ayarlar
+          {t.settings}
         </button>
       </div>
 
@@ -319,7 +352,7 @@ export default function MenuScreen({
             }}
           >
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
-              <h3 style={{ margin: 0, fontFamily: "'Fredoka', sans-serif", fontSize: 24 }}>Ayarlar</h3>
+              <h3 style={{ margin: 0, fontFamily: "'Fredoka', sans-serif", fontSize: 24 }}>{t.settingsTitle}</h3>
               <button
                 onClick={() => setSettingsOpen(false)}
                 style={{ background: "transparent", border: "none", color: theme.textColor, fontSize: 22, cursor: "pointer" }}
@@ -327,9 +360,45 @@ export default function MenuScreen({
                 ×
               </button>
             </div>
+
+            {/* Language Switcher */}
+            <div
+              style={{
+                width: "100%",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                background: "rgba(255,255,255,0.06)",
+                borderRadius: 14,
+                padding: "10px 16px",
+                marginBottom: 10,
+                boxSizing: "border-box",
+              }}
+            >
+              <span style={{ fontFamily: "'Nunito', sans-serif", fontSize: 16, fontWeight: 700 }}>
+                🌐 {t.language}
+              </span>
+              <button
+                onClick={() => setLang(lang === "tr" ? "en" : "tr")}
+                style={{
+                  background: theme.accent,
+                  border: "none",
+                  borderRadius: 10,
+                  color: "#fff",
+                  padding: "6px 12px",
+                  cursor: "pointer",
+                  fontFamily: "'Nunito', sans-serif",
+                  fontSize: 14,
+                  fontWeight: 800,
+                }}
+              >
+                {lang === "tr" ? "TR 🇹🇷" : "EN 🇬🇧"}
+              </button>
+            </div>
+
             {[
-              { key: "sound_enabled" as const, label: "Ses Efektleri", icon: "🔊", value: soundEnabled },
-              { key: "vibration_enabled" as const, label: "Titreşim", icon: "▦", value: vibrationEnabled },
+              { key: "sound_enabled" as const, label: t.soundEffects, icon: "🔊", value: soundEnabled },
+              { key: "vibration_enabled" as const, label: t.vibration, icon: "▦", value: vibrationEnabled },
             ].map((setting) => (
               <button
                 key={setting.key}
