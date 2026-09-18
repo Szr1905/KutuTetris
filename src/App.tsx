@@ -110,11 +110,12 @@ export default function App() {
       };
 
       const storedBest = getLocalBestScore();
-      const newBest = Math.max(activeProfile.best_score || 0, score, storedBest);
+      const currentProfileBest = activeProfile.best_score || 0;
+      const newBest = Math.max(currentProfileBest, score, storedBest);
       const newCoins = activeProfile.coins + coinsEarned;
       const totalBlocksPlaced = (activeProfile.total_blocks_placed || 0) + stats.blocksPlaced;
 
-      // Yerel hafızayı güncelle
+      // Yerel hafızayı ve en iyi skoru güncel tut
       localStorage.setItem("bestScore", newBest.toString());
       localStorage.setItem("coins", newCoins.toString());
       localStorage.setItem("totalBlocksPlaced", totalBlocksPlaced.toString());

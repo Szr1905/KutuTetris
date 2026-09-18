@@ -72,43 +72,48 @@ const BACKGROUND_GRADIENTS = [
 ];
 
 const ADVANCED_SHAPES: Shape[] = [];
+const STORAGE_KEY = "kutu_tetris_saved_state";
 
-// Ekranda çıkacak Türkçe övgü kelimeleri
 const PRAISE_WORDS = ["Woov!", "Süper!", "Harika!", "İlginç!", "Muhteşem!", "Vov!"];
+
+const sanitizeShape = (shape: Shape): Shape => {
+  if (!shape || !shape.cells) return shape;
+  const actualHeight = shape.cells.length;
+  const actualWidth = shape.cells[0]?.length || 0;
+  return {
+    ...shape,
+    height: actualHeight,
+    width: actualWidth,
+  };
+};
 
 const isPlusShape = (shape: Shape) => {
   if (!shape || shape.width !== 3 || shape.height !== 3) return false;
   const c = shape.cells;
   return (
-    Boolean(c[1][1]) &&
-    Boolean(c[0][1]) &&
-    Boolean(c[1][0]) &&
-    Boolean(c[1][2]) &&
-    Boolean(c[2][1]) &&
-    !c[0][0] &&
-    !c[0][2] &&
-    !c[2][0] &&
-    !c[2][2]
+    Boolean(c[1]?.[1]) &&
+    Boolean(c[0]?.[1]) &&
+    Boolean(c[1]?.[0]) &&
+    Boolean(c[1]?.[2]) &&
+    Boolean(c[2]?.[1]) &&
+    !c[0]?.[0] &&
+    !c[0]?.[2] &&
+    !c[2]?.[0] &&
+    !c[2]?.[2]
   );
-};
-
-const isTargetShape = (shape: Shape): boolean => {
-  if (!shape) return false;
-  return isPlusShape(shape);
 };
 
 const getShapeCellCount = (shape: Shape): number => {
   if (!shape || !shape.cells) return 0;
   let count = 0;
-  for (let sr = 0; sr < shape.height; sr++) {
-    for (let sc = 0; sc < shape.width; sc++) {
+  for (let sr = 0; sr < shape.cells.length; sr++) {
+    for (let sc = 0; sc < (shape.cells[sr]?.length || 0); sc++) {
       if (shape.cells[sr][sc]) count++;
     }
   }
   return count;
 };
 
-// Z, C, X ve 1x3 merdiven/çapraz blok tespiti
 const isZCXOrStair = (s: Shape): boolean => {
   if (!s || !s.cells) return false;
   const count = getShapeCellCount(s);
@@ -116,71 +121,61 @@ const isZCXOrStair = (s: Shape): boolean => {
   const h = s.height;
   const c = s.cells;
 
-  // X / Cross veya 3x3 karmaşık desenler
   if (w === 3 && h === 3) {
-    if (count === 5 && c[1][1] && (c[0][1] && c[2][1] && c[1][0] && c[1][2])) return true; // '+' / X şekli
-    if (count === 5 && c[1][1] && (c[0][0] && c[0][2] && c[2][0] && c[2][2])) return true; // Çapraz X
-    if ((c[0][0] && c[1][1] && c[2][2]) || (c[0][2] && c[1][1] && c[2][0])) return true; // 3x3 Merdiven
+    if (count === 5 && c[1]?.[1] && (c[0]?.[1] && c[2]?.[1] && c[1]?.[0] && c[1]?.[2])) return true;
+    if (count === 5 && c[1]?.[1] && (c[0]?.[0] && c[0]?.[2] && c[2]?.[0] && c[2]?.[2])) return true;
+    if ((c[0]?.[0] && c[1]?.[1] && c[2]?.[2]) || (c[0]?.[2] && c[1]?.[1] && c[2]?.[0])) return true;
   }
 
-  // Z / S Blokları (2x3 veya 3x2, 4 kareli Z düzeni)
   if ((w === 3 && h === 2) || (w === 2 && h === 3)) {
     if (count === 4) {
       if (w === 3 && h === 2) {
-        if ((c[0][0] && c[0][1] && c[1][1] && c[1][2]) || (c[1][0] && c[1][1] && c[0][1] && c[0][2])) return true;
+        if ((c[0]?.[0] && c[0]?.[1] && c[1]?.[1] && c[1]?.[2]) || (c[1]?.[0] && c[1]?.[1] && c[0]?.[1] && c[0]?.[2])) return true;
       }
       if (w === 2 && h === 3) {
-        if ((c[0][1] && c[1][1] && c[1][0] && c[2][0]) || (c[0][0] && c[1][0] && c[1][1] && c[2][1])) return true;
+        if ((c[0]?.[1] && c[1]?.[1] && c[1]?.[0] && c[2]?.[0]) || (c[0]?.[0] && c[1]?.[0] && c[1]?.[1] && c[2]?.[1])) return true;
       }
     }
   }
 
-  // C Şekli (3x3 veya 2x3 içbükey bloklar)
   if (count === 5) {
     if (w === 3 && h === 3) {
-      if (c[0][0] && c[0][1] && c[0][2] && c[1][0] && c[2][0] && c[2][1] && c[2][2] && !c[1][1] && !c[1][2]) return true;
-      if (c[0][0] && c[0][1] && c[0][2] && c[1][2] && c[2][0] && c[2][1] && c[2][2] && !c[1][1] && !c[1][0]) return true;
+      if (c[0]?.[0] && c[0]?.[1] && c[0]?.[2] && c[1]?.[0] && c[2]?.[0] && c[2]?.[1] && c[2]?.[2] && !c[1]?.[1] && !c[1]?.[2]) return true;
+      if (c[0]?.[0] && c[0]?.[1] && c[0]?.[2] && c[1]?.[2] && c[2]?.[0] && c[2]?.[1] && c[2]?.[2] && !c[1]?.[1] && !c[1]?.[0]) return true;
     }
   }
 
-  // 1x3 Merdiven / Çapraz adımlı Blok
   if (count === 3 && w >= 2 && h >= 2) {
-    if ((c[0][0] && c[1][1] && c[2]?.[2]) || (c[0]?.[2] && c[1][1] && c[2]?.[0])) return true;
+    if ((c[0]?.[0] && c[1]?.[1] && c[2]?.[2]) || (c[0]?.[2] && c[1]?.[1] && c[2]?.[0])) return true;
   }
 
   return false;
 };
 
-// Seviye Bazlı Blok İzin Kuralları
 const isShapeAllowedForLevel = (s: Shape, level: number): boolean => {
   if (!s) return false;
   const count = getShapeCellCount(s);
 
-  // Seviye 1 & 2: Yalnızca 1x1, 1x2, 2x1 ve 2x2 (tam kare) bloklar
   if (level < 3) {
     if (s.width > 2 || s.height > 2) return false;
-    // 2x2 alanda 3 kare kaplayan L bloklarını Seviye 3'e aktarıyoruz
     if (s.width === 2 && s.height === 2 && count !== 4) return false;
     return count === 1 || count === 2 || count === 4;
   }
 
-  // Seviye 3: L, T ve 3x3 gibi karmaşık bloklar dahil; Z, C, X ve merdiven blokları hariç
   if (level === 3) {
     if (s.width > 3 || s.height > 3) return false;
     if (isZCXOrStair(s)) return false;
     return true;
   }
 
-  // Seviye 4 ve üzeri: Z, C, X, 1x3 merdiven blokları dahil tüm bloklar
   return true;
 };
 
-// Masadaki mevcut blokları takip ederek satır/sütun patlamasını sağlayan değerlendirme
 const evaluateShapeForGrid = (shape: Shape, g: number[][]): number => {
   let cellCount = 0;
   for (let sr = 0; sr < shape.height; sr++) {
     for (let sc = 0; sc < shape.width; sc++) {
-      if (shape.cells[sr][sc]) cellCount++;
+      if (shape.cells[sr]?.[sc]) cellCount++;
     }
   }
 
@@ -196,14 +191,14 @@ const evaluateShapeForGrid = (shape: Shape, g: number[][]): number => {
 
         for (let sr = 0; sr < shape.height; sr++) {
           for (let sc = 0; sc < shape.width; sc++) {
-            if (shape.cells[sr][sc]) {
+            if (shape.cells[sr]?.[sc]) {
               const gr = r + sr;
               const gc = c + sc;
               let rowFill = 0;
               let colFill = 0;
               for (let i = 0; i < GRID_SIZE; i++) {
-                if (g[gr][i]) rowFill++;
-                if (g[i][gc]) colFill++;
+                if (g[gr]?.[i]) rowFill++;
+                if (g[i]?.[gc]) colFill++;
               }
               fillBonus += rowFill + colFill;
 
@@ -215,7 +210,7 @@ const evaluateShapeForGrid = (shape: Shape, g: number[][]): number => {
               ];
               for (const [nr, nc] of neighbors) {
                 if (nr >= 0 && nr < GRID_SIZE && nc >= 0 && nc < GRID_SIZE) {
-                  if (g[nr][nc]) adjacencyBonus += 120;
+                  if (g[nr]?.[nc]) adjacencyBonus += 120;
                 }
               }
             }
@@ -233,7 +228,11 @@ const evaluateShapeForGrid = (shape: Shape, g: number[][]): number => {
   return maxScore;
 };
 
-const getValidShapes = (level: number, currentGrid?: number[][]): Shape[] => {
+const getValidShapes = (
+  level: number,
+  currentGrid?: number[][],
+  levelBlocksPlaced: number = 0
+): Shape[] => {
   const effectiveLevel = level;
 
   const getRandomShapeWithAdvanced = (lvl: number): Shape => {
@@ -242,10 +241,11 @@ const getValidShapes = (level: number, currentGrid?: number[][]): Shape[] => {
     do {
       if (lvl >= 8 && ADVANCED_SHAPES.length > 0 && Math.random() < 0.4) {
         const advIndex = Math.floor(Math.random() * ADVANCED_SHAPES.length);
-        shape = ADVANCED_SHAPES[advIndex];
+        shape = sanitizeShape(ADVANCED_SHAPES[advIndex]);
       } else {
         const generated = generateThreeShapes(lvl);
-        shape = generated[Math.floor(Math.random() * generated.length)];
+        const rawShape = generated[Math.floor(Math.random() * generated.length)];
+        shape = sanitizeShape(rawShape);
       }
       attempts++;
     } while (shape && (!isShapeAllowedForLevel(shape, lvl) || isPlusShape(shape)) && attempts < 80);
@@ -271,7 +271,10 @@ const getValidShapes = (level: number, currentGrid?: number[][]): Shape[] => {
     return valid;
   }
 
-  // Masadaki blok düzenini birebir takip ederek patlamaya en uygun şekilleri üretme
+  // Seviye hedef blok sayısı hesaplama: Seviye 1-3 için 15, Seviye 4+ için 15 + (Level - 3) * 3
+  const targetBlocks = level <= 3 ? 15 : 15 + (level - 3) * 3;
+  const isSaverPhase = levelBlocksPlaced >= targetBlocks;
+
   const candidates: { shape: Shape; score: number }[] = [];
   let attempts = 0;
   while (candidates.length < 250 && attempts < 700) {
@@ -299,9 +302,30 @@ const getValidShapes = (level: number, currentGrid?: number[][]): Shape[] => {
     }
   }
 
+  // Normal Akış (Hedef sayıya ulaşılmadıysa): 2 Kurtarıcı + 1 Rastgele Şekil
+  if (!isSaverPhase && valid.length >= 3) {
+    const saverShapes = valid.slice(0, 2);
+    let randomShape = getRandomShapeWithAdvanced(effectiveLevel);
+    let rAttempts = 0;
+    while (
+      (!randomShape || isPlusShape(randomShape) || !isShapeAllowedForLevel(randomShape, effectiveLevel)) &&
+      rAttempts < 50
+    ) {
+      randomShape = getRandomShapeWithAdvanced(effectiveLevel);
+      rAttempts++;
+    }
+    return [...saverShapes, randomShape];
+  }
+
+  // Kurtarıcı Fazı (Hedef aşıldıysa) veya eksik kalınırsa tamamlama: %100 Kurtarıcı Şekiller
   while (valid.length < 3) {
     const shape = getRandomShapeWithAdvanced(effectiveLevel);
-    if (shape && !isPlusShape(shape) && isShapeAllowedForLevel(shape, effectiveLevel) && canPlaceAnywhere(currentGrid, shape)) {
+    if (
+      shape &&
+      !isPlusShape(shape) &&
+      isShapeAllowedForLevel(shape, effectiveLevel) &&
+      canPlaceAnywhere(currentGrid, shape)
+    ) {
       valid.push(shape);
     }
   }
@@ -321,10 +345,20 @@ export default function GameScreen({
 }: GameScreenProps) {
   const startSoundPlayed = useRef(false);
 
-  const initialLevel = 1;
-  const [bgIndex, setBgIndex] = useState(0);
-  const [gameDifficulty, setGameDifficulty] = useState(initialLevel);
-  const [clearedCount, setClearedCount] = useState(0);
+  const [savedState] = useState(() => {
+    try {
+      const data = localStorage.getItem(STORAGE_KEY);
+      if (data) return JSON.parse(data);
+    } catch {
+      /* localStorage error */
+    }
+    return null;
+  });
+
+  const [bgIndex, setBgIndex] = useState(savedState?.bgIndex ?? 0);
+  const [gameDifficulty, setGameDifficulty] = useState(savedState?.gameDifficulty ?? 1);
+  const [clearedCount, setClearedCount] = useState(savedState?.clearedCount ?? 0);
+  const [levelBlocksPlaced, setLevelBlocksPlaced] = useState(savedState?.levelBlocksPlaced ?? 0);
 
   const [levelUpText, setLevelUpText] = useState<string | null>(null);
   const [isSweepActive, setIsSweepActive] = useState(false);
@@ -337,23 +371,21 @@ export default function GameScreen({
     }
   }, [soundEnabled]);
 
-  const audioCtxRef = useRef<AudioContext | null>(null);
+  const audioCacheRef = useRef<Record<string, HTMLAudioElement>>({});
 
-  const getCtx = useCallback((): AudioContext | null => {
+  const playAudioFile = useCallback((filename: string) => {
+    if (!soundEnabled) return;
     try {
-      if (!audioCtxRef.current) {
-        audioCtxRef.current = new (
-          window.AudioContext || (window as any).webkitAudioContext
-        )();
+      if (!audioCacheRef.current[filename]) {
+        audioCacheRef.current[filename] = new Audio(`/${filename}`);
       }
-      if (audioCtxRef.current.state === "suspended") {
-        audioCtxRef.current.resume();
-      }
-      return audioCtxRef.current;
+      const audio = audioCacheRef.current[filename];
+      audio.currentTime = 0;
+      audio.play().catch(() => {});
     } catch {
-      return null;
+      /* Audio play error */
     }
-  }, []);
+  }, [soundEnabled]);
 
   const playSound = useCallback(
     (
@@ -365,172 +397,62 @@ export default function GameScreen({
         | "gameover"
         | "start"
         | "grab"
-        | "levelup",
+        | "levelup"
+        | "perfectclear"
+        | "warning",
       comboLevel: number = 0,
-      linesCleared: number = 0
+      linesCleared: number = 0,
+      clearedRows: number[] = [],
+      clearedCols: number[] = [],
+      isBoardEmpty: boolean = false
     ) => {
       if (!soundEnabled) return;
 
-      const ctx = getCtx();
-      if (!ctx) return;
-      const now = ctx.currentTime;
-
-      if (type === "grab") {
-        const bufferSize = Math.floor(ctx.sampleRate * 0.1);
-        const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-        const data = buffer.getChannelData(0);
-        for (let i = 0; i < bufferSize; i++) {
-          data[i] = Math.random() * 2 - 1;
-        }
-        const noise = ctx.createBufferSource();
-        noise.buffer = buffer;
-
-        const filter = ctx.createBiquadFilter();
-        filter.type = "bandpass";
-        filter.frequency.setValueAtTime(450, now);
-        filter.frequency.exponentialRampToValueAtTime(1200, now + 0.05);
-
-        const gain = ctx.createGain();
-        gain.gain.setValueAtTime(0.01, now);
-        gain.gain.linearRampToValueAtTime(0.15, now + 0.03);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
-
-        noise.connect(filter);
-        filter.connect(gain);
-        gain.connect(ctx.destination);
-        noise.start(now);
-        noise.stop(now + 0.1);
-      } else if (linesCleared >= 2 || type === "multi") {
-        const notes = [523.25, 659.25, 783.99, 1046.5, 1318.51];
-        notes.forEach((freq, idx) => {
-          const osc = ctx.createOscillator();
-          const gain = ctx.createGain();
-          const delay = idx * 0.04;
-
-          osc.type = "sine";
-          osc.frequency.setValueAtTime(freq, now + delay);
-          osc.frequency.exponentialRampToValueAtTime(freq * 1.18, now + delay + 0.15);
-
-          gain.gain.setValueAtTime(0.001, now + delay);
-          gain.gain.linearRampToValueAtTime(0.15, now + delay + 0.02);
-          gain.gain.exponentialRampToValueAtTime(0.0001, now + delay + 0.22);
-
-          osc.connect(gain);
-          gain.connect(ctx.destination);
-
-          osc.start(now + delay);
-          osc.stop(now + delay + 0.22);
-        });
-      } else if (comboLevel >= 1 || type === "combo") {
-        // 1. combo ve 2. combo aynı temelde çalar; kombo arttıkça (3, 4, 5...) ses frekansı ve sesi/volümü yükselir
-        const effectiveStep = comboLevel <= 2 ? 1 : comboLevel - 1;
-        const baseFreq = 440 * Math.pow(1.15, effectiveStep);
-        const volumeBoost = Math.min(0.35, 0.16 + (comboLevel > 2 ? (comboLevel - 2) * 0.04 : 0));
-
-        const comboChord = [baseFreq, baseFreq * 1.25, baseFreq * 1.5, baseFreq * 1.8];
-
-        comboChord.forEach((f, idx) => {
-          const osc = ctx.createOscillator();
-          const gain = ctx.createGain();
-          const delay = idx * 0.03;
-
-          osc.type = "sine";
-          osc.frequency.setValueAtTime(f, now + delay);
-          osc.frequency.exponentialRampToValueAtTime(f * 1.35, now + delay + 0.2);
-
-          gain.gain.setValueAtTime(0.001, now + delay);
-          gain.gain.linearRampToValueAtTime(volumeBoost, now + delay + 0.02);
-          gain.gain.exponentialRampToValueAtTime(0.0001, now + delay + 0.25);
-
-          osc.connect(gain);
-          gain.connect(ctx.destination);
-
-          osc.start(now + delay);
-          osc.stop(now + delay + 0.25);
-        });
-      } else if (type === "clear") {
-        const popFreqs = [523.25, 659.25, 783.99];
-        popFreqs.forEach((freq, idx) => {
-          const osc = ctx.createOscillator();
-          const gain = ctx.createGain();
-          const delay = idx * 0.02;
-
-          osc.type = "sine";
-          osc.frequency.setValueAtTime(freq, now + delay);
-          osc.frequency.exponentialRampToValueAtTime(freq * 1.25, now + delay + 0.12);
-
-          gain.gain.setValueAtTime(0.01, now + delay);
-          gain.gain.linearRampToValueAtTime(0.18, now + delay + 0.02);
-          gain.gain.exponentialRampToValueAtTime(0.001, now + delay + 0.15);
-
-          osc.connect(gain);
-          gain.connect(ctx.destination);
-
-          osc.start(now + delay);
-          osc.stop(now + delay + 0.15);
-        });
-      } else if (type === "place") {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = "triangle";
-        osc.frequency.setValueAtTime(320, now);
-        osc.frequency.exponentialRampToValueAtTime(140, now + 0.04);
-        gain.gain.setValueAtTime(0.15, now);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start(now);
-        osc.stop(now + 0.05);
-      } else if (type === "gameover") {
-        // Üzgün Game Over ses efekti (İnen minör gam ve hüzünlü ton)
-        const sadNotes = [440, 392, 349.23, 293.66, 220];
-        sadNotes.forEach((f, idx) => {
-          const delay = idx * 0.16;
-          const osc = ctx.createOscillator();
-          const gain = ctx.createGain();
-
-          osc.type = "sawtooth";
-          osc.frequency.setValueAtTime(f, now + delay);
-          osc.frequency.exponentialRampToValueAtTime(f * 0.88, now + delay + 0.35);
-
-          const filter = ctx.createBiquadFilter();
-          filter.type = "lowpass";
-          filter.frequency.setValueAtTime(800, now + delay);
-          filter.frequency.linearRampToValueAtTime(300, now + delay + 0.35);
-
-          gain.gain.setValueAtTime(0.01, now + delay);
-          gain.gain.linearRampToValueAtTime(0.2, now + delay + 0.04);
-          gain.gain.exponentialRampToValueAtTime(0.001, now + delay + 0.38);
-
-          osc.connect(filter);
-          filter.connect(gain);
-          gain.connect(ctx.destination);
-
-          osc.start(now + delay);
-          osc.stop(now + delay + 0.38);
-        });
+      if (type === "levelup") {
+        playAudioFile("bolumbitimi.mp3");
+      } else if (type === "perfectclear") {
+        playAudioFile("victory.mp3");
       } else if (type === "start") {
-        const notes = [329.63, 392, 523.25, 659.25];
-        notes.forEach((f, idx) => {
-          const delay = idx * 0.08;
-          const osc = ctx.createOscillator();
-          const gain = ctx.createGain();
+        playAudioFile("baslangic.mp3");
+      } else if (type === "grab") {
+        playAudioFile("blokcekme.mp3");
+      } else if (type === "place") {
+        playAudioFile("blokbirakma.wav");
+      } else if (type === "warning") {
+        playAudioFile("masadolumu.mp3");
+      } else if (type === "gameover") {
+        if (gameDifficulty >= 5) {
+          playAudioFile("5bolumgameover.mp3");
+        } else {
+          playAudioFile("gameover.mp3");
+        }
+      } else {
+        if (linesCleared > 0) {
+          playAudioFile("satirsutun2.mp3");
+        }
 
-          osc.type = "triangle";
-          osc.frequency.setValueAtTime(f, now + delay);
-          gain.gain.setValueAtTime(0.01, now + delay);
-          gain.gain.linearRampToValueAtTime(0.15, now + delay + 0.03);
-          gain.gain.exponentialRampToValueAtTime(0.001, now + delay + 0.22);
+        if (linesCleared === 2) {
+          playAudioFile("2blok.mp3");
+        } else if (linesCleared >= 3) {
+          playAudioFile("3blok.mp3");
+        } else if (comboLevel === 1) {
+          playAudioFile("combo.wav");
+        } else if (comboLevel >= 2) {
+          playAudioFile("combo2.mp3");
+        } else if (linesCleared > 0) {
+          playAudioFile("satir.mp3");
+        }
 
-          osc.connect(gain);
-          gain.connect(ctx.destination);
-
-          osc.start(now + delay);
-          osc.stop(now + delay + 0.22);
-        });
+        if (Math.random() < 0.3) {
+          if (Math.random() < 0.5) {
+            playAudioFile("woov.mp3");
+          } else {
+            playAudioFile("ilginc.mp3");
+          }
+        }
       }
     },
-    [soundEnabled, getCtx]
+    [soundEnabled, playAudioFile, gameDifficulty]
   );
 
   const playSoundRef = useRef(playSound);
@@ -544,19 +466,26 @@ export default function GameScreen({
       try {
         navigator.vibrate?.(pattern);
       } catch {
-        /* Vibration not available */
+        /* Vibration error */
       }
     },
     [vibrationEnabled]
   );
 
-  const [grid, setGrid] = useState<number[][]>(createEmptyGrid);
+  const [grid, setGrid] = useState<number[][]>(() => createEmptyGrid());
   const [shapes, setShapes] = useState<(Shape | null)[]>(() =>
-    getValidShapes(1, createEmptyGrid())
+    getValidShapes(
+      savedState?.gameDifficulty ?? 1,
+      createEmptyGrid(),
+      savedState?.levelBlocksPlaced ?? 0
+    )
   );
   const [score, setScore] = useState(0);
+  const [currentBestScore, setCurrentBestScore] = useState(
+    savedState?.bestScore ?? bestScore ?? 0
+  );
   const [combo, setCombo] = useState(0);
-  const [coinsEarned, setCoinsEarned] = useState(0);
+  const [coinsEarned, setCoinsEarned] = useState(savedState?.coinsEarned ?? 0);
   const [drag, setDrag] = useState<DragState | null>(null);
   const [hoverRow, setHoverRow] = useState(-1);
   const [hoverCol, setHoverCol] = useState(-1);
@@ -601,6 +530,32 @@ export default function GameScreen({
   const totalCellSize = cellSize + gap;
 
   useEffect(() => {
+    if (score > currentBestScore) {
+      setCurrentBestScore(score);
+    }
+  }, [score, currentBestScore]);
+
+  useEffect(() => {
+    if (gameOver) {
+      localStorage.removeItem(STORAGE_KEY);
+      return;
+    }
+    try {
+      const stateToSave = {
+        bestScore: Math.max(currentBestScore, score),
+        gameDifficulty,
+        clearedCount,
+        bgIndex,
+        coinsEarned,
+        levelBlocksPlaced,
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(stateToSave));
+    } catch {
+      /* localStorage write error */
+    }
+  }, [score, currentBestScore, gameDifficulty, clearedCount, bgIndex, coinsEarned, levelBlocksPlaced, gameOver]);
+
+  useEffect(() => {
     gridStateRef.current = grid;
   }, [grid]);
 
@@ -608,7 +563,6 @@ export default function GameScreen({
     dragRef.current = drag;
   }, [drag]);
 
-  // Parçacık animasyon döngüsü
   useEffect(() => {
     if (ledParticles.length === 0) return;
     const timer = requestAnimationFrame(() => {
@@ -634,8 +588,12 @@ export default function GameScreen({
     let filled = 0;
     for (const row of grid) for (const cell of row) if (cell) filled++;
     const ratio = filled / (GRID_SIZE * GRID_SIZE);
+    
+    if (!isFiftyFivePercentFull && ratio >= 0.55) {
+      playSound("warning");
+    }
     setIsFiftyFivePercentFull(ratio >= 0.55);
-  }, [grid]);
+  }, [grid, isFiftyFivePercentFull, playSound]);
 
   useEffect(() => {
     if (displayScore === score) return;
@@ -783,6 +741,7 @@ export default function GameScreen({
 
   const runBoardFillSweepEffect = useCallback((onComplete: () => void) => {
     setIsSweepActive(true);
+    playSound("levelup");
 
     for (let r = GRID_SIZE - 1; r >= 0; r--) {
       setTimeout(() => {
@@ -814,7 +773,47 @@ export default function GameScreen({
       setIsSweepActive(false);
       onComplete();
     }, GRID_SIZE * 120 + 300);
-  }, []);
+  }, [playSound]);
+
+  const runOpeningFillSweepEffect = useCallback((onComplete: () => void) => {
+    setIsSweepActive(true);
+    if (Math.random() < 0.5) {
+      playAudioFile("yenioyun.mp3");
+    } else {
+      playAudioFile("yenioyun2.mp3");
+    }
+
+    for (let r = 0; r < GRID_SIZE; r++) {
+      setTimeout(() => {
+        setGrid((prev) => {
+          const next = prev.map((row) => [...row]);
+          for (let c = 0; c < GRID_SIZE; c++) {
+            next[r][c] = ((r + c) % COLORS.length) + 1;
+          }
+          return next;
+        });
+      }, r * 50);
+    }
+
+    setTimeout(() => {
+      for (let r = 0; r < GRID_SIZE; r++) {
+        setTimeout(() => {
+          setGrid((prev) => {
+            const next = prev.map((row) => [...row]);
+            for (let c = 0; c < GRID_SIZE; c++) {
+              next[r][c] = 0;
+            }
+            return next;
+          });
+        }, r * 50);
+      }
+    }, GRID_SIZE * 50 + 150);
+
+    setTimeout(() => {
+      setIsSweepActive(false);
+      onComplete();
+    }, GRID_SIZE * 100 + 250);
+  }, [playAudioFile]);
 
   const handlePlacement = useCallback(
     (shapeIndex: number, shape: Shape, row: number, col: number) => {
@@ -824,13 +823,16 @@ export default function GameScreen({
       let placedCells = 0;
       for (let r = 0; r < shape.height; r++) {
         for (let c = 0; c < shape.width; c++) {
-          if (shape.cells[r][c]) placedCells++;
+          if (shape.cells[r]?.[c]) placedCells++;
         }
       }
 
       const newGrid = placeShape(currentGrid, shape, row, col);
       setBurst({ row, col, color: shape.color, intense: false });
       window.setTimeout(() => setBurst(null), 520);
+
+      const newLevelBlocksPlaced = levelBlocksPlaced + 1;
+      setLevelBlocksPlaced(newLevelBlocksPlaced);
 
       const {
         newGrid: clearedGrid,
@@ -864,6 +866,8 @@ export default function GameScreen({
       setCombo(newCombo);
 
       if (totalLines > 0) {
+        const isBoardEmpty = clearedGrid.every((r) => r.every((cell) => cell === 0));
+
         const newFloatingId = Date.now();
         setFloatingScores((prev) => [
           ...prev,
@@ -898,19 +902,17 @@ export default function GameScreen({
         vibrate(newCombo > 1 ? [30, 20, 30] : 40);
 
         if (totalLines >= 3) {
-          playSound("multi", newCombo, totalLines);
-        } else if (newCombo >= 1) {
-          playSound("combo", newCombo, totalLines);
-        } else if (totalLines === 2) {
-          playSound("multi", newCombo, totalLines);
+          playSound("multi", newCombo, totalLines, clearedRows, clearedCols, isBoardEmpty);
+        } else if (newCombo > 0) {
+          playSound("combo", newCombo, totalLines, clearedRows, clearedCols, isBoardEmpty);
         } else {
-          playSound("clear", newCombo, totalLines);
+          playSound("clear", newCombo, totalLines, clearedRows, clearedCols, isBoardEmpty);
         }
         setTimeout(() => setShake(false), 300);
 
-        const isBoardEmpty = clearedGrid.every((r) => r.every((cell) => cell === 0));
         if (isBoardEmpty) {
           setShowPerfectClear(true);
+          playSound("perfectclear");
           setTimeout(() => setShowPerfectClear(false), 2500);
 
           setBgIndex((prev) => (prev + 1) % BACKGROUND_GRADIENTS.length);
@@ -918,6 +920,7 @@ export default function GameScreen({
           setClearedCount((prev) => prev + 1);
           const nextDiff = gameDifficulty + 1;
           setGameDifficulty(nextDiff);
+          setLevelBlocksPlaced(0);
 
           setCombo(0);
 
@@ -930,7 +933,7 @@ export default function GameScreen({
               setCombo(0);
             }
             const newShapes = isSetCompleted
-              ? getValidShapes(nextDiff, createEmptyGrid())
+              ? getValidShapes(nextDiff, createEmptyGrid(), 0)
               : remainingShapes;
             setShapes(newShapes);
             checkGameOver(createEmptyGrid(), newShapes, newTotalScore);
@@ -952,7 +955,7 @@ export default function GameScreen({
       }
 
       const newShapes = isSetCompleted
-        ? getValidShapes(gameDifficulty, clearedGrid)
+        ? getValidShapes(gameDifficulty, clearedGrid, newLevelBlocksPlaced)
         : remainingShapes;
       setShapes(newShapes);
 
@@ -982,6 +985,7 @@ export default function GameScreen({
       playSound,
       score,
       gameDifficulty,
+      levelBlocksPlaced,
       totalCellSize,
       runBoardFillSweepEffect,
     ]
@@ -1069,12 +1073,7 @@ export default function GameScreen({
     if (isClearing || isSweepActive || gameOver || shapes[shapeIndex] === null) return;
     e.preventDefault();
 
-    if (soundEnabled && isTargetShape(shape)) {
-      const audio = new Audio("/sound.mp3");
-      audio.play().catch(() => {});
-    } else {
-      playSound("grab");
-    }
+    playSound("grab");
     vibrate(10);
 
     const isTouch = e.pointerType === "touch";
@@ -1164,31 +1163,34 @@ export default function GameScreen({
   };
 
   const handleRestart = () => {
-    const emptyGrid = createEmptyGrid();
-    setGrid(emptyGrid);
-    gridStateRef.current = emptyGrid;
-    const startDiff = 1;
-    setGameDifficulty(startDiff);
-    setClearedCount(0);
-    setShapes(getValidShapes(startDiff, emptyGrid));
-    setScore(0);
-    setDisplayScore(0);
-    setCombo(0);
-    setCoinsEarned(0);
-    setGameOver(false);
-    setGameOverFill(false);
     setGameOverModalShow(false);
-    setBurst(null);
-    setLedParticles([]);
-    setComboText(null);
-    setLevelUpText(null);
-    setIsFiftyFivePercentFull(false);
-    setShowPerfectClear(false);
-    setIsSweepActive(false);
-    maxComboRef.current = 0;
-    maxMultiClearRef.current = 0;
-    blocksPlacedRef.current = 0;
-    playSound("start");
+    setGameOverFill(false);
+    setGameOver(false);
+
+    runOpeningFillSweepEffect(() => {
+      const emptyGrid = createEmptyGrid();
+      setGrid(emptyGrid);
+      gridStateRef.current = emptyGrid;
+      const startDiff = gameDifficulty;
+      setGameDifficulty(startDiff);
+      setClearedCount(0);
+      setLevelBlocksPlaced(0);
+      setShapes(getValidShapes(startDiff, emptyGrid, 0));
+      setScore(0);
+      setDisplayScore(0);
+      setCombo(0);
+      setCoinsEarned(0);
+      setBurst(null);
+      setLedParticles([]);
+      setComboText(null);
+      setLevelUpText(null);
+      setIsFiftyFivePercentFull(false);
+      setShowPerfectClear(false);
+      maxComboRef.current = 0;
+      maxMultiClearRef.current = 0;
+      blocksPlacedRef.current = 0;
+      localStorage.removeItem(STORAGE_KEY);
+    });
   };
 
   const renderPreview = () => {
@@ -1197,7 +1199,7 @@ export default function GameScreen({
     const tempGrid = grid.map((r) => [...r]);
     for (let r = 0; r < drag.shape.height; r++) {
       for (let c = 0; c < drag.shape.width; c++) {
-        if (drag.shape.cells[r][c]) {
+        if (drag.shape.cells[r]?.[c]) {
           const gr = hoverRow + r;
           const gc = hoverCol + c;
           if (gr >= 0 && gr < GRID_SIZE && gc >= 0 && gc < GRID_SIZE) {
@@ -1224,7 +1226,7 @@ export default function GameScreen({
     const cells: React.ReactNode[] = [];
     for (let r = 0; r < drag.shape.height; r++) {
       for (let c = 0; c < drag.shape.width; c++) {
-        if (drag.shape.cells[r][c]) {
+        if (drag.shape.cells[r]?.[c]) {
           cells.push(
             <div
               key={`prev-${r}-${c}`}
@@ -1395,34 +1397,14 @@ export default function GameScreen({
           }
         }
         @keyframes lineClearGlow {
-          0% {
-            opacity: 1;
-            transform: scale(0.98);
-          }
-          50% {
-            opacity: 1;
-            transform: scale(1.1);
-            filter: brightness(2);
-          }
-          100% {
-            opacity: 0;
-            transform: scale(0.3);
-          }
+          0% { opacity: 1; transform: scale(0.98); }
+          50% { opacity: 1; transform: scale(1.1); filter: brightness(2); }
+          100% { opacity: 0; transform: scale(0.3); }
         }
         @keyframes lineClearFlash {
-          0% {
-            opacity: 0;
-            transform: scaleX(0.8);
-          }
-          50% {
-            opacity: 1;
-            transform: scaleX(1.05);
-            filter: brightness(2.5);
-          }
-          100% {
-            opacity: 0;
-            transform: scaleX(1);
-          }
+          0% { opacity: 0; transform: scaleX(0.8); }
+          50% { opacity: 1; transform: scaleX(1.05); filter: brightness(2.5); }
+          100% { opacity: 0; transform: scaleX(1); }
         }
         @keyframes popSquare {
           0% { transform: scale(0); opacity: 0; }
@@ -1463,14 +1445,7 @@ export default function GameScreen({
           ‹
         </button>
         <div style={{ textAlign: "center" }}>
-          <div
-            style={{
-              fontSize: 13,
-              textTransform: "uppercase",
-              letterSpacing: 1,
-              opacity: 0.8,
-            }}
-          >
+          <div style={{ fontSize: 13, textTransform: "uppercase", letterSpacing: 1, opacity: 0.8 }}>
             SKOR
           </div>
           <div style={{ fontSize: 32, fontWeight: 900, color: "#fff" }}>
@@ -1478,18 +1453,11 @@ export default function GameScreen({
           </div>
         </div>
         <div style={{ textAlign: "right" }}>
-          <div
-            style={{
-              fontSize: 13,
-              textTransform: "uppercase",
-              letterSpacing: 1,
-              opacity: 0.8,
-            }}
-          >
+          <div style={{ fontSize: 13, textTransform: "uppercase", letterSpacing: 1, opacity: 0.8 }}>
             SEVİYE {gameDifficulty}
           </div>
           <div style={{ fontSize: 20, fontWeight: 800, color: "#ffd447" }}>
-            {Math.max(bestScore, score)}
+            EN İYİ: {Math.max(currentBestScore, score)}
           </div>
         </div>
       </div>
@@ -1515,14 +1483,7 @@ export default function GameScreen({
         }}
       >
         {isFiftyFivePercentFull && (
-          <div
-            style={{
-              position: "absolute",
-              inset: -12,
-              pointerEvents: "none",
-              zIndex: 25,
-            }}
-          >
+          <div style={{ position: "absolute", inset: -12, pointerEvents: "none", zIndex: 25 }}>
             {Array.from({ length: 16 }).map((_, idx) => {
               let top = "0%";
               let left = "0%";
