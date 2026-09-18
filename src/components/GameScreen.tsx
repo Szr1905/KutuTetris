@@ -635,6 +635,15 @@ export default function GameScreen({
     return () => clearTimeout(timer);
   }, [displayScore, score]);
 
+  const handleExitGame = () => {
+    onGameOver(score, coinsEarned, false, {
+      maxCombo: maxComboRef.current,
+      maxMultiClear: maxMultiClearRef.current,
+      blocksPlaced: blocksPlacedRef.current,
+    });
+    onExit();
+  };
+
   const checkGameOver = useCallback(
     (
       currentGrid: number[][],
@@ -652,12 +661,18 @@ export default function GameScreen({
         playSound("gameover");
         vibrate([100, 50, 100]);
 
+        onGameOver(currentScore, coinsEarned, false, {
+          maxCombo: maxComboRef.current,
+          maxMultiClear: maxMultiClearRef.current,
+          blocksPlaced: blocksPlacedRef.current,
+        });
+
         setTimeout(() => {
           setGameOverModalShow(true);
         }, 1500);
       }
     },
-    [playSound, vibrate]
+    [playSound, vibrate, onGameOver, coinsEarned]
   );
 
   const spawnSquareParticles = (rows: number[], cols: number[]) => {
@@ -1450,7 +1465,7 @@ export default function GameScreen({
         }
       `}</style>
 
-      {/* Üst Bar / Skor Tabela (Görsele Uygun Yeni Tasarım) */}
+      {/* Üst Bar / Skor Tabela */}
       <div
         style={{
           width: "100%",
@@ -1465,7 +1480,7 @@ export default function GameScreen({
         {/* Sol tarafta dengelenme için boş alan */}
         <div style={{ width: 32 }} />
 
-        {/* Görseldeki Çift Daireli Skor Çubuğu */}
+        {/* Çift Daireli Skor Çubuğu */}
         <div
           style={{
             position: "relative",
@@ -1538,10 +1553,10 @@ export default function GameScreen({
           </div>
         </div>
 
-        {/* En Sağda Ayarlar / Menü Çark İkonu */}
+        {/* En Sağda Geri Tuşu (Sola Ok Simgesi) */}
         <button
-          onClick={onExit}
-          aria-label="Menüye dön"
+          onClick={handleExitGame}
+          aria-label="Geri dön"
           style={{
             background: "transparent",
             border: "none",
@@ -1563,12 +1578,12 @@ export default function GameScreen({
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
-            strokeWidth="2.2"
+            strokeWidth="2.5"
             strokeLinecap="round"
             strokeLinejoin="round"
           >
-            <circle cx="12" cy="12" r="3" />
-            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            <line x1="19" y1="12" x2="5" y2="12" />
+            <polyline points="12 19 5 12 12 5" />
           </svg>
         </button>
       </div>
