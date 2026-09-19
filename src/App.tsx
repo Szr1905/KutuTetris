@@ -205,11 +205,11 @@ export default function App() {
         console.error(e);
       }
 
+      // NOT: setScreen("menu") buradan kaldırıldı. 
+      // Oyun bittiğinde GameScreen ekrandan gitmeyecek, animasyonlar ve Game Over ekranı görünebilecek.
+      // Oyuncu menüye dönmek istediğinde GameScreen'deki onExit tetiklenecek.
       if (levelCompleted && gameMode === "adventure") {
         setGameLevel(newLevel);
-        setScreen("game");
-      } else {
-        setScreen("menu");
       }
     },
     [profile, gameMode]

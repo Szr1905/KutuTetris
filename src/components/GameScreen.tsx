@@ -50,7 +50,7 @@ type LEDParticle = {
   size: number;
   rotation: number;
   vRot: number;
-  type?: "crystal" | "neon" | "firework" | "butterfly" | "square";
+  type?: "crystal" | "neon" | "firework" | "butterfly" | "square" | "star";
   life?: number;
 };
 
@@ -367,7 +367,7 @@ export default function GameScreen({
       "bolumbitimi.mp3",
       "victory.mp3",
       "baslangic.mp3",
-      "blokcekme.mp3",
+      "blok.mp3",
       "blokbirakma.wav",
       "masadolumu.mp3",
       "5bolumgameover.mp3",
@@ -393,14 +393,6 @@ export default function GameScreen({
     });
   }, []);
 
-  useEffect(() => {
-    if (soundEnabled && !startSoundPlayed.current) {
-      startSoundPlayed.current = true;
-      const timer = setTimeout(() => playSoundRef.current("start"), 200);
-      return () => clearTimeout(timer);
-    }
-  }, [soundEnabled]);
-
   const playAudioFile = useCallback((filename: string) => {
     if (!soundEnabled) return;
     try {
@@ -416,6 +408,12 @@ export default function GameScreen({
       /* Audio play error */
     }
   }, [soundEnabled]);
+
+  useEffect(() => {
+    if (soundEnabled) {
+      playAudioFile("baslangic.mp3");
+    }
+  }, [soundEnabled, playAudioFile]);
 
   const playSound = useCallback(
     (
@@ -445,7 +443,7 @@ export default function GameScreen({
       } else if (type === "start") {
         playAudioFile("baslangic.mp3");
       } else if (type === "grab") {
-        playAudioFile("blokcekme.mp3");
+        playAudioFile("blok.mp3");
       } else if (type === "place") {
         playAudioFile("blokbirakma.wav");
       } else if (type === "warning") {
@@ -602,8 +600,8 @@ export default function GameScreen({
             ...p,
             x: p.x + p.vx,
             y: p.y + p.vy,
-            vy: p.type === "butterfly" ? p.vy - 0.1 : p.vy + 0.15,
-            vx: p.type === "butterfly" ? p.vx + Math.sin(Date.now() * 0.015 + p.id) * 0.4 : p.vx * 0.95,
+            vy: p.vy + 0.15,
+            vx: p.vx * 0.95,
             rotation: p.rotation + p.vRot,
             size: p.size * 0.92,
             life: (p.life ?? 1) - 0.035,
@@ -675,113 +673,58 @@ export default function GameScreen({
     [playSound, vibrate, onGameOver, coinsEarned]
   );
 
-  const spawnSquareParticles = (rows: number[], cols: number[]) => {
+  const spawnLineExplosionParticles = (rows: number[], cols: number[]) => {
     const particles: LEDParticle[] = [];
-    const colors = ["#00f0ff", "#ff007f", "#ffe600", "#39ff14"];
+    const colors = [
+      "#ffe600", "#ff007f", "#00f0ff", "#39ff14", "#ffffff", "#ff9900", 
+      "#b006ff", "#ff7eb9", "#7afcff", "#ff4757", "#00d2ff", "#ff00ff"
+    ];
+    const particleTypes: ("star" | "crystal" | "neon" | "firework" | "square")[] = [
+      "star", "crystal", "neon", "firework", "square"
+    ];
 
-    const generateAt = (r: number, c: number) => {
+    const generateAtCell = (r: number, c: number) => {
       const centerX = c * totalCellSize + cellSize / 2;
       const centerY = r * totalCellSize + cellSize / 2;
+      const count = 4 + Math.floor(Math.random() * 3);
 
-      for (let i = 0; i < 1; i++) {
+      for (let i = 0; i < count; i++) {
         const color = colors[Math.floor(Math.random() * colors.length)];
+        const pType = particleTypes[Math.floor(Math.random() * particleTypes.length)];
         const angle = Math.random() * Math.PI * 2;
-        const speed = 3 + Math.random() * 4;
+        const speed = 2.5 + Math.random() * 5.5;
+
         particles.push({
           id: Math.random(),
           x: centerX,
           y: centerY,
           vx: Math.cos(angle) * speed,
-          vy: Math.sin(angle) * speed - 1,
+          vy: Math.sin(angle) * speed - 1.2,
           color,
-          size: 5 + Math.random() * 4,
+          size: 4 + Math.random() * 7,
           rotation: Math.random() * 360,
-          vRot: (Math.random() - 0.5) * 20,
-          type: "square",
-          life: 0.8,
+          vRot: (Math.random() - 0.5) * 35,
+          type: pType,
+          life: 0.85 + Math.random() * 0.25,
         });
       }
     };
 
     rows.forEach((r) => {
-      for (let c = 0; c < GRID_SIZE; c += 2) generateAt(r, c);
-    });
-    cols.forEach((c) => {
-      for (let r = 0; r < GRID_SIZE; r += 2) {
-        if (!rows.includes(r)) generateAt(r, c);
+      for (let c = 0; c < GRID_SIZE; c++) {
+        generateAtCell(r, c);
       }
     });
 
-    setLedParticles((prev) => [...prev.slice(-15), ...particles]);
-  };
-
-  const spawnButterflyParticles = (rows: number[], cols: number[]) => {
-    const butterflies: LEDParticle[] = [];
-    const colors = ["#ff7eb9", "#ff007f", "#00f0ff", "#ffe600", "#39ff14"];
-
-    const generateButterflyAt = (r: number, c: number) => {
-      const centerX = c * totalCellSize + cellSize / 2;
-      const centerY = r * totalCellSize + cellSize / 2;
-
-      butterflies.push({
-        id: Math.random(),
-        x: centerX,
-        y: centerY,
-        vx: (Math.random() - 0.5) * 4,
-        vy: -Math.random() * 5 - 2,
-        color: colors[Math.floor(Math.random() * colors.length)],
-        size: 10 + Math.random() * 6,
-        rotation: Math.random() * 360,
-        vRot: (Math.random() - 0.5) * 20,
-        type: "butterfly",
-        life: 0.9,
-      });
-    };
-
-    rows.forEach((r) => {
-      for (let c = 0; c < GRID_SIZE; c += 2) generateButterflyAt(r, c);
-    });
     cols.forEach((c) => {
-      for (let r = 0; r < GRID_SIZE; r += 2) {
-        if (!rows.includes(r)) generateButterflyAt(r, c);
+      for (let r = 0; r < GRID_SIZE; r++) {
+        if (!rows.includes(r)) {
+          generateAtCell(r, c);
+        }
       }
     });
 
-    setLedParticles((prev) => [...prev.slice(-15), ...butterflies]);
-  };
-
-  const spawnCrystalParticles = (rows: number[], cols: number[]) => {
-    const particles: LEDParticle[] = [];
-    const colors = ["#00f0ff", "#7afcff", "#ffffff", "#b006ff"];
-    const generateAt = (r: number, c: number) => {
-      const centerX = c * totalCellSize + cellSize / 2;
-      const centerY = r * totalCellSize + cellSize / 2;
-      const color = colors[Math.floor(Math.random() * colors.length)];
-      const angle = Math.random() * Math.PI * 2;
-      const speed = 2 + Math.random() * 4;
-      particles.push({
-        id: Math.random(),
-        x: centerX,
-        y: centerY,
-        vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed,
-        color,
-        size: 5 + Math.random() * 4,
-        rotation: Math.random() * 360,
-        vRot: (Math.random() - 0.5) * 20,
-        type: "crystal",
-        life: 0.8,
-      });
-    };
-    rows.forEach((r) => {
-      for (let c = 0; c < GRID_SIZE; c += 2) generateAt(r, c);
-    });
-    cols.forEach((c) => {
-      for (let r = 0; r < GRID_SIZE; r += 2) {
-        if (!rows.includes(r)) generateAt(r, c);
-      }
-    });
-    setLedParticles((prev) => [...prev.slice(-15), ...particles]);
+    setLedParticles((prev) => [...prev.slice(-30), ...particles]);
   };
 
   const runBoardFillSweepEffect = useCallback((onComplete: () => void) => {
@@ -927,12 +870,7 @@ export default function GameScreen({
           setFloatingScores((prev) => prev.filter((f) => f.id !== newFloatingId));
         }, 900);
 
-        spawnButterflyParticles(clearedRows, clearedCols);
-        spawnCrystalParticles(clearedRows, clearedCols);
-
-        if (totalLines >= 2) {
-          spawnSquareParticles(clearedRows, clearedCols);
-        }
+        spawnLineExplosionParticles(clearedRows, clearedCols);
 
         const praiseWord = PRAISE_WORDS[Math.floor(Math.random() * PRAISE_WORDS.length)];
         if (newCombo > 1) {
@@ -1208,6 +1146,7 @@ export default function GameScreen({
   };
 
   const handleRestart = () => {
+    playAudioFile("baslangic.mp3");
     setGameOverModalShow(false);
     setGameOverFill(false);
     setGameOver(false);
@@ -1432,6 +1371,22 @@ export default function GameScreen({
         @keyframes blinkGameOver {
           0%, 100% { opacity: 1; transform: scale(1); }
           50% { opacity: 0.15; transform: scale(0.96); }
+        }
+        @keyframes gameOverAnim {
+          0% { transform: scale(0.2) rotate(-10deg); opacity: 0; filter: blur(10px); }
+          60% { transform: scale(1.25) rotate(3deg); opacity: 1; filter: blur(0px); }
+          80% { transform: scale(0.95) rotate(-1deg); }
+          100% { transform: scale(1) rotate(0deg); opacity: 1; }
+        }
+        @keyframes pulseTextAnimation {
+          0% { transform: scale(1); text-shadow: 0 0 10px #ff4757, 0 0 20px #ff0055; }
+          50% { transform: scale(1.08); text-shadow: 0 0 25px #ff4757, 0 0 50px #ff0055, 0 0 75px #ffffff; }
+          100% { transform: scale(1); text-shadow: 0 0 10px #ff4757, 0 0 20px #ff0055; }
+        }
+        @keyframes replayBtnGlow {
+          0% { transform: scale(1); box-shadow: 0 0 15px #22c55e, 0 0 30px #22c55e; }
+          50% { transform: scale(1.05); box-shadow: 0 0 25px #22c55e, 0 0 50px #4ade80; }
+          100% { transform: scale(1); box-shadow: 0 0 15px #22c55e, 0 0 30px #22c55e; }
         }
         @keyframes perfectGlow {
           0% {
@@ -1724,15 +1679,19 @@ export default function GameScreen({
               width: p.size,
               height: p.size,
               background: p.color,
-              borderRadius: p.type === "square" ? 2 : 0,
+              borderRadius: p.type === "square" ? 2 : p.type === "neon" ? "50%" : 0,
               clipPath:
-                p.type === "butterfly"
+                p.type === "star"
+                  ? "polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%)"
+                  : p.type === "butterfly"
                   ? "polygon(50% 0%, 100% 38%, 82% 100%, 50% 75%, 18% 100%, 0% 38%)"
                   : p.type === "crystal"
                   ? "polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)"
+                  : p.type === "firework"
+                  ? "polygon(50% 0%, 65% 35%, 100% 50%, 65% 65%, 50% 100%, 35% 65%, 0% 50%, 35% 35%)"
                   : "none",
               transform: `translate(-50%, -50%) rotate(${p.rotation}deg)`,
-              boxShadow: `0 0 ${p.size * 1.5}px ${p.color}`,
+              boxShadow: `0 0 ${p.size * 1.8}px ${p.color}`,
               pointerEvents: "none",
               zIndex: 40,
               opacity: p.life ?? 1,
@@ -1831,24 +1790,75 @@ export default function GameScreen({
               inset: 0,
               background: "rgba(5, 10, 25, 0.95)",
               zIndex: 100,
-              display: "grid",
-              gridTemplateColumns: `repeat(${GRID_SIZE}, 1fr)`,
-              gridTemplateRows: `repeat(${GRID_SIZE}, 1fr)`,
-              gap: 2,
-              padding: 4,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              overflow: "hidden",
             }}
           >
-            {Array.from({ length: GRID_SIZE * GRID_SIZE }).map((_, i) => (
+            <div
+              style={{
+                position: "absolute",
+                inset: 0,
+                display: "grid",
+                gridTemplateColumns: `repeat(${GRID_SIZE}, 1fr)`,
+                gridTemplateRows: `repeat(${GRID_SIZE}, 1fr)`,
+                gap: 2,
+                padding: 4,
+              }}
+            >
+              {Array.from({ length: GRID_SIZE * GRID_SIZE }).map((_, i) => (
+                <div
+                  key={i}
+                  className="block-3d"
+                  style={{
+                    background: COLORS[i % COLORS.length],
+                    animation: `popSquare 0.4s ease ${(i * 0.015)}s forwards`,
+                    transform: "scale(0)",
+                  }}
+                />
+              ))}
+            </div>
+
+            <div
+              style={{
+                position: "relative",
+                zIndex: 110,
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                gap: 12,
+              }}
+            >
               <div
-                key={i}
-                className="block-3d"
                 style={{
-                  background: COLORS[i % COLORS.length],
-                  animation: `popSquare 0.4s ease ${(i * 0.015)}s forwards`,
-                  transform: "scale(0)",
+                  fontSize: 42,
+                  fontWeight: 900,
+                  color: "#ff4757",
+                  textShadow: "0 0 20px #ff4757, 0 0 40px #ff0055, 0 0 60px #ffffff",
+                  letterSpacing: 3,
+                  textAlign: "center",
+                  whiteSpace: "nowrap",
+                  animation: "gameOverAnim 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards",
                 }}
-              />
-            ))}
+              >
+                GAME OVER
+              </div>
+
+              <div
+                style={{
+                  fontSize: 32,
+                  fontWeight: 900,
+                  color: "#00f0ff",
+                  textShadow: "0 0 15px #00f0ff, 0 0 30px #ffffff",
+                  animation: "pulseTextAnimation 1.5s infinite ease-in-out",
+                  letterSpacing: 2,
+                }}
+              >
+                TEKRAR OYNA
+              </div>
+            </div>
           </div>
         )}
       </div>
@@ -1982,7 +1992,7 @@ export default function GameScreen({
               border: "none",
               borderRadius: 30,
               cursor: "pointer",
-              boxShadow: "0 0 15px #22c55e",
+              animation: "replayBtnGlow 1.8s infinite ease-in-out",
             }}
           >
             TEKRAR OYNA
