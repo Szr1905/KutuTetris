@@ -71,7 +71,6 @@ const BACKGROUND_GRADIENTS = [
   "linear-gradient(180deg, #4b6cb7 0%, #182848 100%)",
 ];
 
-const ADVANCED_SHAPES: Shape[] = [];
 const STORAGE_KEY = "kutu_tetris_saved_state";
 
 const PRAISE_WORDS = ["Woov!", "Süper!", "Harika!", "İlginç!", "Muhteşem!", "Vov!"];
@@ -134,7 +133,6 @@ const evaluateShapeForGrid = (shape: Shape, g: number[][]): number => {
         }
 
         const simplicityBonus = (9 - cellCount) * 50;
-        // Satır/sütun temizleyen hamlelere devasa öncelik veriyoruz
         const score = linesCleared * 100000 + fillBonus * 100 + adjacencyBonus * 150 + simplicityBonus + 1;
         if (score > maxScore) {
           maxScore = score;
@@ -165,10 +163,10 @@ const getValidShapes = (
     return valid;
   }
 
-  // Masadaki bloklarla eşleşme ve temizleme yapabilen şekilleri bulalım
   const candidates: { shape: Shape; score: number }[] = [];
   let attempts = 0;
-  while (candidates.length < 300 && attempts < 800) {
+  // Donmayı önlemek için deneme ve aday sayısı makul seviyeye çekildi
+  while (candidates.length < 30 && attempts < 80) {
     attempts++;
     const shape = getRandomShape(level);
     if (shape) {
@@ -179,7 +177,6 @@ const getValidShapes = (
     }
   }
 
-  // En yüksek eşleşme ve patlatma skoruna göre sırala
   candidates.sort((a, b) => b.score - a.score);
 
   const valid: Shape[] = [];
@@ -194,7 +191,6 @@ const getValidShapes = (
     }
   }
 
-  // Masayı tam yerleştirecek hamle garantisi
   while (valid.length < 3) {
     const shape = getRandomShape(level);
     if (shape && canPlaceAnywhere(currentGrid, shape)) {
