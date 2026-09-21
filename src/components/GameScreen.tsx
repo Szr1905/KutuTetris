@@ -165,8 +165,7 @@ const getValidShapes = (
 
   const candidates: { shape: Shape; score: number }[] = [];
   let attempts = 0;
-  // Donmayı önlemek için deneme ve aday sayısı makul seviyeye çekildi
-  while (candidates.length < 30 && attempts < 80) {
+  while (candidates.length < 300 && attempts < 800) {
     attempts++;
     const shape = getRandomShape(level);
     if (shape) {
@@ -204,8 +203,6 @@ const getValidShapes = (
 export default function GameScreen({
   theme,
   bestScore,
-  adventureLevel,
-  mode,
   soundEnabled,
   vibrationEnabled,
   onExit,
@@ -228,7 +225,7 @@ export default function GameScreen({
   const [clearedCount, setClearedCount] = useState(savedState?.clearedCount ?? 0);
   const [levelBlocksPlaced, setLevelBlocksPlaced] = useState(savedState?.levelBlocksPlaced ?? 0);
 
-  const [levelUpText, setLevelUpText] = useState<string | null>(null);
+  const [levelUpText] = useState<string | null>(null);
   const [isSweepActive, setIsSweepActive] = useState(false);
 
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -329,9 +326,6 @@ export default function GameScreen({
         | "warning",
       comboLevel: number = 0,
       linesCleared: number = 0,
-      clearedRows: number[] = [],
-      clearedCols: number[] = [],
-      isBoardEmpty: boolean = false
     ) => {
       if (!soundEnabled) return;
 
@@ -428,7 +422,7 @@ export default function GameScreen({
   const [isFiftyFivePercentFull, setIsFiftyFivePercentFull] = useState(false);
   const [showPerfectClear, setShowPerfectClear] = useState(false);
 
-  const [burst, setBurst] = useState<{
+  const [, setBurst] = useState<{
     row: number;
     col: number;
     color: string;
@@ -490,6 +484,7 @@ export default function GameScreen({
     dragRef.current = drag;
   }, [drag]);
 
+  // Particle Animatörü Optimizasyonu (60FPS senkronizasyonlu)
   useEffect(() => {
     if (ledParticles.length === 0) return;
     let animId: number;
@@ -795,11 +790,11 @@ export default function GameScreen({
         vibrate(newCombo > 1 ? [30, 20, 30] : 40);
 
         if (totalLines >= 3) {
-          playSound("multi", newCombo, totalLines, clearedRows, clearedCols, isBoardEmpty);
+          playSound("multi", newCombo, totalLines);
         } else if (newCombo > 0) {
-          playSound("combo", newCombo, totalLines, clearedRows, clearedCols, isBoardEmpty);
+          playSound("combo", newCombo, totalLines);
         } else {
-          playSound("clear", newCombo, totalLines, clearedRows, clearedCols, isBoardEmpty);
+          playSound("clear", newCombo, totalLines);
         }
         setTimeout(() => setShake(false), 300);
 
@@ -872,7 +867,6 @@ export default function GameScreen({
     [
       shapes,
       combo,
-      soundEnabled,
       checkGameOver,
       vibrate,
       playSound,
@@ -997,6 +991,7 @@ export default function GameScreen({
     (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
   };
 
+  // Optimize Sürükleme Mantığı (Geri Bildirim Kaybı Olmadan Donanım Destekli)
   const handlePointerMove = (e: React.PointerEvent) => {
     if (!dragRef.current) return;
     e.preventDefault();
@@ -1085,7 +1080,6 @@ export default function GameScreen({
       setBurst(null);
       setLedParticles([]);
       setComboText(null);
-      setLevelUpText(null);
       setIsFiftyFivePercentFull(false);
       setShowPerfectClear(false);
       maxComboRef.current = 0;
