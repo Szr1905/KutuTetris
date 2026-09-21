@@ -87,90 +87,6 @@ const sanitizeShape = (shape: Shape): Shape => {
   };
 };
 
-const isPlusShape = (shape: Shape) => {
-  if (!shape || shape.width !== 3 || shape.height !== 3) return false;
-  const c = shape.cells;
-  return (
-    Boolean(c[1]?.[1]) &&
-    Boolean(c[0]?.[1]) &&
-    Boolean(c[1]?.[0]) &&
-    Boolean(c[1]?.[2]) &&
-    Boolean(c[2]?.[1]) &&
-    !c[0]?.[0] &&
-    !c[0]?.[2] &&
-    !c[2]?.[0] &&
-    !c[2]?.[2]
-  );
-};
-
-const getShapeCellCount = (shape: Shape): number => {
-  if (!shape || !shape.cells) return 0;
-  let count = 0;
-  for (let sr = 0; sr < shape.cells.length; sr++) {
-    for (let sc = 0; sc < (shape.cells[sr]?.length || 0); sc++) {
-      if (shape.cells[sr][sc]) count++;
-    }
-  }
-  return count;
-};
-
-const isZCXOrStair = (s: Shape): boolean => {
-  if (!s || !s.cells) return false;
-  const count = getShapeCellCount(s);
-  const w = s.width;
-  const h = s.height;
-  const c = s.cells;
-
-  if (w === 3 && h === 3) {
-    if (count === 5 && c[1]?.[1] && (c[0]?.[1] && c[2]?.[1] && c[1]?.[0] && c[1]?.[2])) return true;
-    if (count === 5 && c[1]?.[1] && (c[0]?.[0] && c[0]?.[2] && c[2]?.[0] && c[2]?.[2])) return true;
-    if ((c[0]?.[0] && c[1]?.[1] && c[2]?.[2]) || (c[0]?.[2] && c[1]?.[1] && c[2]?.[0])) return true;
-  }
-
-  if ((w === 3 && h === 2) || (w === 2 && h === 3)) {
-    if (count === 4) {
-      if (w === 3 && h === 2) {
-        if ((c[0]?.[0] && c[0]?.[1] && c[1]?.[1] && c[1]?.[2]) || (c[1]?.[0] && c[1]?.[1] && c[0]?.[1] && c[0]?.[2])) return true;
-      }
-      if (w === 2 && h === 3) {
-        if ((c[0]?.[1] && c[1]?.[1] && c[1]?.[0] && c[2]?.[0]) || (c[0]?.[0] && c[1]?.[0] && c[1]?.[1] && c[2]?.[1])) return true;
-      }
-    }
-  }
-
-  if (count === 5) {
-    if (w === 3 && h === 3) {
-      if (c[0]?.[0] && c[0]?.[1] && c[0]?.[2] && c[1]?.[0] && c[2]?.[0] && c[2]?.[1] && c[2]?.[2] && !c[1]?.[1] && !c[1]?.[2]) return true;
-      if (c[0]?.[0] && c[0]?.[1] && c[0]?.[2] && c[1]?.[2] && c[2]?.[0] && c[2]?.[1] && c[2]?.[2] && !c[1]?.[1] && !c[1]?.[0]) return true;
-    }
-  }
-
-  if (count === 3 && w >= 2 && h >= 2) {
-    if ((c[0]?.[0] && c[1]?.[1] && c[2]?.[2]) || (c[0]?.[2] && c[1]?.[1] && c[2]?.[0])) return true;
-  }
-
-  return false;
-};
-
-const isShapeAllowedForLevel = (s: Shape, level: number): boolean => {
-  if (!s) return false;
-  const count = getShapeCellCount(s);
-
-  if (level < 3) {
-    if (s.width > 2 || s.height > 2) return false;
-    if (s.width === 2 && s.height === 2 && count !== 4) return false;
-    return count === 1 || count === 2 || count === 4;
-  }
-
-  if (level === 3) {
-    if (s.width > 3 || s.height > 3) return false;
-    if (isZCXOrStair(s)) return false;
-    return true;
-  }
-
-  return true;
-};
-
 const evaluateShapeForGrid = (shape: Shape, g: number[][]): number => {
   let cellCount = 0;
   for (let sr = 0; sr < shape.height; sr++) {
@@ -218,6 +134,7 @@ const evaluateShapeForGrid = (shape: Shape, g: number[][]): number => {
         }
 
         const simplicityBonus = (9 - cellCount) * 50;
+        // Satır/sütun temizleyen hamlelere devasa öncelik veriyoruz
         const score = linesCleared * 100000 + fillBonus * 100 + adjacencyBonus * 150 + simplicityBonus + 1;
         if (score > maxScore) {
           maxScore = score;
@@ -231,55 +148,30 @@ const evaluateShapeForGrid = (shape: Shape, g: number[][]): number => {
 const getValidShapes = (
   level: number,
   currentGrid?: number[][],
-  levelBlocksPlaced: number = 0
+  _levelBlocksPlaced: number = 0
 ): Shape[] => {
-  const effectiveLevel = level;
-
-  const getRandomShapeWithAdvanced = (lvl: number): Shape => {
-    let shape: Shape;
-    let attempts = 0;
-    do {
-      if (lvl >= 8 && ADVANCED_SHAPES.length > 0 && Math.random() < 0.4) {
-        const advIndex = Math.floor(Math.random() * ADVANCED_SHAPES.length);
-        shape = sanitizeShape(ADVANCED_SHAPES[advIndex]);
-      } else {
-        const generated = generateThreeShapes(lvl);
-        const rawShape = generated[Math.floor(Math.random() * generated.length)];
-        shape = sanitizeShape(rawShape);
-      }
-      attempts++;
-    } while (shape && (!isShapeAllowedForLevel(shape, lvl) || isPlusShape(shape)) && attempts < 80);
-    return shape;
+  const getRandomShape = (lvl: number): Shape => {
+    const generated = generateThreeShapes(lvl);
+    const rawShape = generated[Math.floor(Math.random() * generated.length)];
+    return sanitizeShape(rawShape);
   };
 
   if (!currentGrid) {
-    let valid: Shape[] = [];
-    let attempts = 0;
-    while (valid.length < 3 && attempts < 300) {
-      attempts++;
-      const shape = getRandomShapeWithAdvanced(effectiveLevel);
-      if (shape && !isPlusShape(shape) && isShapeAllowedForLevel(shape, effectiveLevel)) {
-        valid.push(shape);
-      }
-    }
+    const valid: Shape[] = [];
     while (valid.length < 3) {
-      const shape = getRandomShapeWithAdvanced(effectiveLevel);
-      if (shape && !isPlusShape(shape)) {
-        valid.push(shape);
-      }
+      const shape = getRandomShape(level);
+      if (shape) valid.push(shape);
     }
     return valid;
   }
 
-  const targetBlocks = level <= 3 ? 15 : 15 + (level - 3) * 3;
-  const isSaverPhase = levelBlocksPlaced >= targetBlocks;
-
+  // Masadaki bloklarla eşleşme ve temizleme yapabilen şekilleri bulalım
   const candidates: { shape: Shape; score: number }[] = [];
   let attempts = 0;
-  while (candidates.length < 250 && attempts < 700) {
+  while (candidates.length < 300 && attempts < 800) {
     attempts++;
-    const shape = getRandomShapeWithAdvanced(effectiveLevel);
-    if (shape && !isPlusShape(shape) && isShapeAllowedForLevel(shape, effectiveLevel)) {
+    const shape = getRandomShape(level);
+    if (shape) {
       const score = evaluateShapeForGrid(shape, currentGrid);
       if (score > 0) {
         candidates.push({ shape, score });
@@ -287,6 +179,7 @@ const getValidShapes = (
     }
   }
 
+  // En yüksek eşleşme ve patlatma skoruna göre sırala
   candidates.sort((a, b) => b.score - a.score);
 
   const valid: Shape[] = [];
@@ -301,28 +194,10 @@ const getValidShapes = (
     }
   }
 
-  if (!isSaverPhase && valid.length >= 3) {
-    const saverShapes = valid.slice(0, 2);
-    let randomShape = getRandomShapeWithAdvanced(effectiveLevel);
-    let rAttempts = 0;
-    while (
-      (!randomShape || isPlusShape(randomShape) || !isShapeAllowedForLevel(randomShape, effectiveLevel)) &&
-      rAttempts < 50
-    ) {
-      randomShape = getRandomShapeWithAdvanced(effectiveLevel);
-      rAttempts++;
-    }
-    return [...saverShapes, randomShape];
-  }
-
+  // Masayı tam yerleştirecek hamle garantisi
   while (valid.length < 3) {
-    const shape = getRandomShapeWithAdvanced(effectiveLevel);
-    if (
-      shape &&
-      !isPlusShape(shape) &&
-      isShapeAllowedForLevel(shape, effectiveLevel) &&
-      canPlaceAnywhere(currentGrid, shape)
-    ) {
+    const shape = getRandomShape(level);
+    if (shape && canPlaceAnywhere(currentGrid, shape)) {
       valid.push(shape);
     }
   }
@@ -360,7 +235,8 @@ export default function GameScreen({
   const [levelUpText, setLevelUpText] = useState<string | null>(null);
   const [isSweepActive, setIsSweepActive] = useState(false);
 
-  const audioCacheRef = useRef<Record<string, HTMLAudioElement>>({});
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const audioBuffersRef = useRef<Record<string, AudioBuffer>>({});
 
   useEffect(() => {
     const soundFiles = [
@@ -384,36 +260,63 @@ export default function GameScreen({
       "yenioyun2.mp3",
     ];
 
-    soundFiles.forEach((file) => {
-      if (!audioCacheRef.current[file]) {
-        const audio = new Audio(`/${file}`);
-        audio.preload = "auto";
-        audioCacheRef.current[file] = audio;
+    const initWebAudio = async () => {
+      try {
+        const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+        if (AudioCtx && !audioCtxRef.current) {
+          audioCtxRef.current = new AudioCtx();
+        }
+      } catch {
+        /* Web Audio desteklenmiyor */
       }
-    });
+
+      soundFiles.forEach(async (file) => {
+        try {
+          const res = await fetch(`/${file}`);
+          const arrayBuffer = await res.arrayBuffer();
+          if (audioCtxRef.current) {
+            const decodedData = await audioCtxRef.current.decodeAudioData(arrayBuffer);
+            audioBuffersRef.current[file] = decodedData;
+          }
+        } catch {
+          /* Ses yüklenemedi */
+        }
+      });
+    };
+
+    initWebAudio();
   }, []);
+
+  useEffect(() => {
+    if (soundEnabled && !startSoundPlayed.current) {
+      startSoundPlayed.current = true;
+      const timer = setTimeout(() => playSoundRef.current("start"), 200);
+      return () => clearTimeout(timer);
+    }
+  }, [soundEnabled]);
 
   const playAudioFile = useCallback((filename: string) => {
     if (!soundEnabled) return;
     try {
-      if (!audioCacheRef.current[filename]) {
-        const audio = new Audio(`/${filename}`);
-        audio.preload = "auto";
-        audioCacheRef.current[filename] = audio;
+      if (audioCtxRef.current) {
+        if (audioCtxRef.current.state === "suspended") {
+          audioCtxRef.current.resume();
+        }
+        const buffer = audioBuffersRef.current[filename];
+        if (buffer) {
+          const source = audioCtxRef.current.createBufferSource();
+          source.buffer = buffer;
+          source.connect(audioCtxRef.current.destination);
+          source.start(0);
+          return;
+        }
       }
-      const audio = audioCacheRef.current[filename];
-      audio.currentTime = 0;
+      const audio = new Audio(`/${filename}`);
       audio.play().catch(() => {});
     } catch {
       /* Audio play error */
     }
   }, [soundEnabled]);
-
-  useEffect(() => {
-    if (soundEnabled) {
-      playAudioFile("baslangic.mp3");
-    }
-  }, [soundEnabled, playAudioFile]);
 
   const playSound = useCallback(
     (
@@ -593,30 +496,41 @@ export default function GameScreen({
 
   useEffect(() => {
     if (ledParticles.length === 0) return;
-    const timer = requestAnimationFrame(() => {
-      setLedParticles((prev) =>
-        prev
+    let animId: number;
+    let lastTime = performance.now();
+
+    const updateParticles = (now: number) => {
+      const dt = Math.min((now - lastTime) / 1000, 0.033);
+      lastTime = now;
+
+      setLedParticles((prev) => {
+        if (prev.length === 0) return prev;
+        return prev
           .map((p) => ({
             ...p,
-            x: p.x + p.vx,
-            y: p.y + p.vy,
-            vy: p.vy + 0.15,
-            vx: p.vx * 0.95,
-            rotation: p.rotation + p.vRot,
-            size: p.size * 0.92,
-            life: (p.life ?? 1) - 0.035,
+            x: p.x + p.vx * dt * 60,
+            y: p.y + p.vy * dt * 60,
+            vy: p.vy + 0.15 * dt * 60,
+            vx: p.vx * Math.pow(0.95, dt * 60),
+            rotation: p.rotation + p.vRot * dt * 60,
+            size: p.size * Math.pow(0.92, dt * 60),
+            life: (p.life ?? 1) - 0.035 * dt * 60,
           }))
-          .filter((p) => p.size > 0.5 && (p.life ?? 1) > 0)
-      );
-    });
-    return () => cancelAnimationFrame(timer);
-  }, [ledParticles]);
+          .filter((p) => p.size > 0.5 && (p.life ?? 1) > 0);
+      });
+
+      animId = requestAnimationFrame(updateParticles);
+    };
+
+    animId = requestAnimationFrame(updateParticles);
+    return () => cancelAnimationFrame(animId);
+  }, [ledParticles.length > 0]);
 
   useEffect(() => {
     let filled = 0;
     for (const row of grid) for (const cell of row) if (cell) filled++;
     const ratio = filled / (GRID_SIZE * GRID_SIZE);
-    
+
     if (!isFiftyFivePercentFull && ratio >= 0.55) {
       playSound("warning");
     }
@@ -686,7 +600,7 @@ export default function GameScreen({
     const generateAtCell = (r: number, c: number) => {
       const centerX = c * totalCellSize + cellSize / 2;
       const centerY = r * totalCellSize + cellSize / 2;
-      const count = 4 + Math.floor(Math.random() * 3);
+      const count = 2 + Math.floor(Math.random() * 2);
 
       for (let i = 0; i < count; i++) {
         const color = colors[Math.floor(Math.random() * colors.length)];
@@ -724,7 +638,7 @@ export default function GameScreen({
       }
     });
 
-    setLedParticles((prev) => [...prev.slice(-30), ...particles]);
+    setLedParticles((prev) => [...prev.slice(-15), ...particles]);
   };
 
   const runBoardFillSweepEffect = useCallback((onComplete: () => void) => {
@@ -932,7 +846,7 @@ export default function GameScreen({
         index === shapeIndex ? null : s
       );
       const isSetCompleted = remainingShapes.every((s) => s === null);
-      
+
       if (isSetCompleted) {
         setCombo(0);
       }
@@ -1056,6 +970,10 @@ export default function GameScreen({
     if (isClearing || isSweepActive || gameOver || shapes[shapeIndex] === null) return;
     e.preventDefault();
 
+    if (audioCtxRef.current && audioCtxRef.current.state === "suspended") {
+      audioCtxRef.current.resume();
+    }
+
     playSound("grab");
     vibrate(10);
 
@@ -1095,7 +1013,7 @@ export default function GameScreen({
       if (!currentDrag) return;
       const { x, y } = pointerPositionRef.current;
       const newDrag = { ...currentDrag, pointerX: x, pointerY: y };
-      setDrag(newDrag);
+
       dragRef.current = newDrag;
 
       const { row, col } = computeTargetFromPointer(
@@ -1105,8 +1023,13 @@ export default function GameScreen({
         currentDrag.isTouch
       );
       const snap = findSnapPosition(currentDrag.shape, row, col);
-      setHoverRow(snap?.row ?? -1);
-      setHoverCol(snap?.col ?? -1);
+
+      const nextHoverRow = snap?.row ?? -1;
+      const nextHoverCol = snap?.col ?? -1;
+
+      setDrag(newDrag);
+      setHoverRow((prevR) => (prevR !== nextHoverRow ? nextHoverRow : prevR));
+      setHoverCol((prevC) => (prevC !== nextHoverCol ? nextHoverCol : prevC));
     });
   };
 
@@ -1146,7 +1069,6 @@ export default function GameScreen({
   };
 
   const handleRestart = () => {
-    playAudioFile("baslangic.mp3");
     setGameOverModalShow(false);
     setGameOverFill(false);
     setGameOver(false);
@@ -1217,13 +1139,13 @@ export default function GameScreen({
               className="block-3d"
               style={{
                 position: "absolute",
-                left: (hoverCol + c) * totalCellSize,
-                top: (hoverRow + r) * totalCellSize,
+                transform: `translate3d(${((hoverCol + c) * totalCellSize)}px, ${((hoverRow + r) * totalCellSize)}px, 0)`,
                 width: cellSize,
                 height: cellSize,
                 background: drag.shape.color,
                 opacity: 0.5,
                 boxSizing: "border-box",
+                willChange: "transform",
               }}
             />
           );
@@ -1237,7 +1159,7 @@ export default function GameScreen({
         style={{
           position: "absolute",
           left: 0,
-          top: r * totalCellSize,
+          transform: `translate3d(0, ${(r * totalCellSize)}px, 0)`,
           width: GRID_SIZE * totalCellSize - gap,
           height: cellSize,
           borderRadius: 6,
@@ -1246,6 +1168,7 @@ export default function GameScreen({
           pointerEvents: "none",
           animation: "ledRowColGlow 0.4s infinite linear",
           zIndex: 15,
+          willChange: "transform",
         }}
       />
     ));
@@ -1255,8 +1178,8 @@ export default function GameScreen({
         key={`clear-col-${c}`}
         style={{
           position: "absolute",
-          left: c * totalCellSize,
           top: 0,
+          transform: `translate3d(${(c * totalCellSize)}px, 0, 0)`,
           width: cellSize,
           height: GRID_SIZE * totalCellSize - gap,
           borderRadius: 6,
@@ -1265,6 +1188,7 @@ export default function GameScreen({
           pointerEvents: "none",
           animation: "ledRowColGlow 0.4s infinite linear",
           zIndex: 15,
+          willChange: "transform",
         }}
       />
     ));
@@ -1297,16 +1221,17 @@ export default function GameScreen({
 
     return {
       position: "fixed",
-      left,
-      top,
+      left: 0,
+      top: 0,
+      transform: `translate3d(${left}px, ${top}px, 0) scale(1.05)`,
       display: "grid",
       gridTemplateColumns: `repeat(${drag.shape.width}, ${cellSize}px)`,
       gridTemplateRows: `repeat(${drag.shape.height}, ${cellSize}px)`,
       gap,
       pointerEvents: "none",
       zIndex: 1000,
-      transform: "scale(1.05)",
       opacity: 0.92,
+      willChange: "transform",
     };
   };
 
@@ -1378,16 +1303,6 @@ export default function GameScreen({
           80% { transform: scale(0.95) rotate(-1deg); }
           100% { transform: scale(1) rotate(0deg); opacity: 1; }
         }
-        @keyframes pulseTextAnimation {
-          0% { transform: scale(1); text-shadow: 0 0 10px #ff4757, 0 0 20px #ff0055; }
-          50% { transform: scale(1.08); text-shadow: 0 0 25px #ff4757, 0 0 50px #ff0055, 0 0 75px #ffffff; }
-          100% { transform: scale(1); text-shadow: 0 0 10px #ff4757, 0 0 20px #ff0055; }
-        }
-        @keyframes replayBtnGlow {
-          0% { transform: scale(1); box-shadow: 0 0 15px #22c55e, 0 0 30px #22c55e; }
-          50% { transform: scale(1.05); box-shadow: 0 0 25px #22c55e, 0 0 50px #4ade80; }
-          100% { transform: scale(1); box-shadow: 0 0 15px #22c55e, 0 0 30px #22c55e; }
-        }
         @keyframes perfectGlow {
           0% {
             text-shadow: 0 0 10px #ffffff, 0 0 20px #ffe600, 0 0 35px #ff007f;
@@ -1432,7 +1347,6 @@ export default function GameScreen({
           boxSizing: "border-box",
         }}
       >
-        {/* Sol tarafta dengelenme için boş alan */}
         <div style={{ width: 32 }} />
 
         {/* Çift Daireli Skor Çubuğu */}
@@ -1446,7 +1360,6 @@ export default function GameScreen({
             height: 48,
           }}
         >
-          {/* İki Daireyi Birleştiren Çubuk */}
           <div
             style={{
               position: "absolute",
@@ -1508,7 +1421,6 @@ export default function GameScreen({
           </div>
         </div>
 
-        {/* En Sağda Geri Tuşu (Sola Ok Simgesi) */}
         <button
           onClick={handleExitGame}
           aria-label="Geri dön"
@@ -1611,8 +1523,7 @@ export default function GameScreen({
                 className={cell ? "block-3d" : ""}
                 style={{
                   position: "absolute",
-                  left: c * totalCellSize,
-                  top: r * totalCellSize,
+                  transform: `translate3d(${(c * totalCellSize)}px, ${(r * totalCellSize)}px, 0)`,
                   width: cellSize,
                   height: cellSize,
                   background: cell
@@ -1625,6 +1536,7 @@ export default function GameScreen({
                     ? "lineClearGlow 0.25s ease-out forwards"
                     : "none",
                   zIndex: isClearingCell ? 20 : 1,
+                  willChange: "transform",
                 }}
               />
             );
@@ -1638,7 +1550,7 @@ export default function GameScreen({
             style={{
               position: "absolute",
               left: 0,
-              top: r * totalCellSize,
+              transform: `translate3d(0, ${(r * totalCellSize)}px, 0)`,
               width: GRID_SIZE * totalCellSize - gap,
               height: cellSize,
               borderRadius: 6,
@@ -1647,6 +1559,7 @@ export default function GameScreen({
               pointerEvents: "none",
               zIndex: 30,
               animation: "lineClearFlash 0.25s ease-out forwards",
+              willChange: "transform",
             }}
           />
         ))}
@@ -1655,8 +1568,8 @@ export default function GameScreen({
             key={`active-clear-col-${c}`}
             style={{
               position: "absolute",
-              left: c * totalCellSize,
               top: 0,
+              transform: `translate3d(${(c * totalCellSize)}px, 0, 0)`,
               width: cellSize,
               height: GRID_SIZE * totalCellSize - gap,
               borderRadius: 6,
@@ -1665,6 +1578,7 @@ export default function GameScreen({
               pointerEvents: "none",
               zIndex: 30,
               animation: "lineClearFlash 0.25s ease-out forwards",
+              willChange: "transform",
             }}
           />
         ))}
@@ -1674,8 +1588,7 @@ export default function GameScreen({
             key={p.id}
             style={{
               position: "absolute",
-              left: p.x,
-              top: p.y,
+              transform: `translate3d(${(p.x)}px, ${(p.y)}px, 0) translate(-50%, -50%) rotate(${p.rotation}deg)`,
               width: p.size,
               height: p.size,
               background: p.color,
@@ -1690,11 +1603,11 @@ export default function GameScreen({
                   : p.type === "firework"
                   ? "polygon(50% 0%, 65% 35%, 100% 50%, 65% 65%, 50% 100%, 35% 65%, 0% 50%, 35% 35%)"
                   : "none",
-              transform: `translate(-50%, -50%) rotate(${p.rotation}deg)`,
               boxShadow: `0 0 ${p.size * 1.8}px ${p.color}`,
               pointerEvents: "none",
               zIndex: 40,
               opacity: p.life ?? 1,
+              willChange: "transform",
             }}
           />
         ))}
@@ -1791,7 +1704,6 @@ export default function GameScreen({
               background: "rgba(5, 10, 25, 0.95)",
               zIndex: 100,
               display: "flex",
-              flexDirection: "column",
               alignItems: "center",
               justifyContent: "center",
               overflow: "hidden",
@@ -1825,39 +1737,17 @@ export default function GameScreen({
               style={{
                 position: "relative",
                 zIndex: 110,
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                gap: 12,
+                fontSize: 42,
+                fontWeight: 900,
+                color: "#ff4757",
+                textShadow: "0 0 20px #ff4757, 0 0 40px #ff0055, 0 0 60px #ffffff",
+                letterSpacing: 3,
+                textAlign: "center",
+                whiteSpace: "nowrap",
+                animation: "gameOverAnim 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards",
               }}
             >
-              <div
-                style={{
-                  fontSize: 42,
-                  fontWeight: 900,
-                  color: "#ff4757",
-                  textShadow: "0 0 20px #ff4757, 0 0 40px #ff0055, 0 0 60px #ffffff",
-                  letterSpacing: 3,
-                  textAlign: "center",
-                  whiteSpace: "nowrap",
-                  animation: "gameOverAnim 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards",
-                }}
-              >
-                GAME OVER
-              </div>
-
-              <div
-                style={{
-                  fontSize: 32,
-                  fontWeight: 900,
-                  color: "#00f0ff",
-                  textShadow: "0 0 15px #00f0ff, 0 0 30px #ffffff",
-                  animation: "pulseTextAnimation 1.5s infinite ease-in-out",
-                  letterSpacing: 2,
-                }}
-              >
-                TEKRAR OYNA
-              </div>
+              GAME OVER
             </div>
           </div>
         )}
@@ -1992,7 +1882,7 @@ export default function GameScreen({
               border: "none",
               borderRadius: 30,
               cursor: "pointer",
-              animation: "replayBtnGlow 1.8s infinite ease-in-out",
+              boxShadow: "0 0 15px #22c55e",
             }}
           >
             TEKRAR OYNA
