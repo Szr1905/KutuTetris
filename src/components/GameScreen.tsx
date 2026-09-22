@@ -72,7 +72,6 @@ const BACKGROUND_GRADIENTS = [
 ];
 
 const STORAGE_KEY = "kutu_tetris_saved_state";
-
 const PRAISE_WORDS = ["Woov!", "Süper!", "Harika!", "İlginç!", "Muhteşem!", "Vov!"];
 
 const sanitizeShape = (shape: Shape): Shape => {
@@ -163,46 +162,58 @@ const getValidShapes = (
     return valid;
   }
 
-  const candidates: { shape: Shape; score: number }[] = [];
+  // 1. Aday şekilleri üret ve tahtaya yerleşebilirliğini doğrula
+  const validCandidates: Shape[] = [];
+  const invalidCandidates: Shape[] = [];
   let attempts = 0;
-  while (candidates.length < 300 && attempts < 800) {
+
+  while ((validCandidates.length < 150 || invalidCandidates.length < 50) && attempts < 600) {
     attempts++;
     const shape = getRandomShape(level);
     if (shape) {
-      const score = evaluateShapeForGrid(shape, currentGrid);
-      if (score > 0) {
-        candidates.push({ shape, score });
+      if (canPlaceAnywhere(currentGrid, shape)) {
+        validCandidates.push(shape);
+      } else {
+        invalidCandidates.push(shape);
       }
     }
   }
 
-  candidates.sort((a, b) => b.score - a.score);
-
   const valid: Shape[] = [];
-  const usedTypes = new Set<string>();
 
-  for (const item of candidates) {
-    const shapeKey = JSON.stringify(item.shape.cells);
-    if (!usedTypes.has(shapeKey)) {
-      usedTypes.add(shapeKey);
-      valid.push(item.shape);
-      if (valid.length === 3) break;
-    }
+  // En az 2 tanesinin kesinlikle tahtaya yerleşebilir olmasını garantiye al
+  while (valid.length < 2 && validCandidates.length > 0) {
+    const randomIndex = Math.floor(Math.random() * validCandidates.length);
+    const chosen = validCandidates.splice(randomIndex, 1)[0];
+    valid.push(chosen);
   }
 
-  while (valid.length < 3) {
+  // Eğer tahtada yerleşebilecek yeterli farklı şekil bulunamadıysa rastgele yerleşebilir şekiller tamamla
+  while (valid.length < 2) {
     const shape = getRandomShape(level);
     if (shape && canPlaceAnywhere(currentGrid, shape)) {
       valid.push(shape);
     }
   }
 
-  return valid;
+  // 3. Şekli seç (Çeşitliliği ve heyecanı korumak için yerleşebilir veya sürpriz zor bir şekil olabilir)
+  const combinedPool = [...validCandidates, ...invalidCandidates];
+  if (combinedPool.length > 0) {
+    const randomIndex = Math.floor(Math.random() * combinedPool.length);
+    valid.push(combinedPool[randomIndex]);
+  } else {
+    valid.push(getRandomShape(level));
+  }
+
+  // Rastgele karıştırarak yerleşebilir olanların sırasını çeşitlendir
+  return valid.sort(() => Math.random() - 0.5);
 };
 
 export default function GameScreen({
   theme,
   bestScore,
+  adventureLevel,
+  mode,
   soundEnabled,
   vibrationEnabled,
   onExit,
@@ -231,26 +242,15 @@ export default function GameScreen({
   const audioCtxRef = useRef<AudioContext | null>(null);
   const audioBuffersRef = useRef<Record<string, AudioBuffer>>({});
 
+  // Korumaya alınan seslerin yüklenmesi
   useEffect(() => {
     const soundFiles = [
-      "bolumbitimi.mp3",
-      "victory.mp3",
       "baslangic.mp3",
-      "blok.mp3",
-      "blokbirakma.wav",
-      "masadolumu.mp3",
-      "5bolumgameover.mp3",
       "gameover.mp3",
-      "satirsutun2.mp3",
-      "2blok.mp3",
+      "5bolumgameover.mp3",
       "3blok.mp3",
-      "combo.wav",
-      "combo2.mp3",
-      "satir.mp3",
-      "woov.mp3",
-      "ilginc.mp3",
-      "yenioyun.mp3",
-      "yenioyun2.mp3",
+      "victory.mp3",
+      "woov.mp3"
     ];
 
     const initWebAudio = async () => {
@@ -288,6 +288,7 @@ export default function GameScreen({
     }
   }, [soundEnabled]);
 
+  // MP3 Çalma Yardımcısı
   const playAudioFile = useCallback((filename: string) => {
     if (!soundEnabled) return;
     try {
@@ -311,6 +312,123 @@ export default function GameScreen({
     }
   }, [soundEnabled]);
 
+  // Web Audio Synthesizer (Sıfır Donmalı Anlık Sentetik Efekt Üreticisi)
+  const playSynthSound = useCallback((type: "grab" | "place" | "clear" | "multi" | "combo" | "warning" | "lively", level: number = 0) => {
+    if (!soundEnabled) return;
+    try {
+      if (!audioCtxRef.current) {
+        const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+        audioCtxRef.current = new AudioCtx();
+      }
+      const ctx = audioCtxRef.current;
+      if (ctx.state === "suspended") {
+        ctx.resume();
+      }
+
+      const now = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      if (type === "grab") {
+        // Blok Tutma (Daha Sesli ve Net Tıklama Efekti)
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(380, now);
+        osc.frequency.exponentialRampToValueAtTime(750, now + 0.08);
+        gain.gain.setValueAtTime(0.65, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.08);
+        osc.start(now);
+        osc.stop(now + 0.08);
+      } else if (type === "place") {
+        // Blok Bırakma (Daha Sesli ve Tok Oturma Efekti)
+        osc.type = "triangle";
+        osc.frequency.setValueAtTime(260, now);
+        osc.frequency.exponentialRampToValueAtTime(75, now + 0.1);
+        gain.gain.setValueAtTime(0.8, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+        osc.start(now);
+        osc.stop(now + 0.1);
+      } else if (type === "clear") {
+        // Tek Çizgi Patlama
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(520, now);
+        osc.frequency.exponentialRampToValueAtTime(880, now + 0.12);
+        gain.gain.setValueAtTime(0.35, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.12);
+        osc.start(now);
+        osc.stop(now + 0.12);
+      } else if (type === "multi") {
+        // Çift / ÇOKLU Çizgi Patlama
+        osc.type = "square";
+        osc.frequency.setValueAtTime(440, now);
+        osc.frequency.exponentialRampToValueAtTime(1050, now + 0.18);
+        gain.gain.setValueAtTime(0.3, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.18);
+        osc.start(now);
+        osc.stop(now + 0.18);
+      } else if (type === "combo") {
+        // Combo x1, x2, x3, x4, x5+
+        const baseFreq = 400 + Math.min(level, 6) * 120;
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(baseFreq, now);
+        osc.frequency.exponentialRampToValueAtTime(baseFreq * 1.5, now + 0.15);
+        gain.gain.setValueAtTime(0.4, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+        osc.start(now);
+        osc.stop(now + 0.15);
+      } else if (type === "warning") {
+        // Masa Dolumu Uyarısı (Çok Daha Sesli ve Üzgün Kayan Minör Ton)
+        const osc2 = ctx.createOscillator();
+        const gain2 = ctx.createGain();
+        osc2.connect(gain2);
+        gain2.connect(ctx.destination);
+
+        osc.type = "sawtooth";
+        osc2.type = "sine";
+
+        // Dramatik hüzünlü minör düşüş
+        osc.frequency.setValueAtTime(450, now);
+        osc.frequency.exponentialRampToValueAtTime(220, now + 0.35);
+
+        osc2.frequency.setValueAtTime(535, now);
+        osc2.frequency.exponentialRampToValueAtTime(261, now + 0.35);
+
+        gain.gain.setValueAtTime(0.6, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.35);
+
+        gain2.gain.setValueAtTime(0.5, now);
+        gain2.gain.exponentialRampToValueAtTime(0.01, now + 0.35);
+
+        osc.start(now);
+        osc2.start(now);
+        osc.stop(now + 0.35);
+        osc2.stop(now + 0.35);
+      } else if (type === "lively") {
+        // "ilginc.mp3" Yerine Eklenen Canlı Efekt (Neşeli ve Enerjik Arpej)
+        const notes = [523.25, 659.25, 783.99, 1046.50];
+        notes.forEach((freq, idx) => {
+          const noteOsc = ctx.createOscillator();
+          const noteGain = ctx.createGain();
+          noteOsc.connect(noteGain);
+          noteGain.connect(ctx.destination);
+
+          noteOsc.type = "sine";
+          noteOsc.frequency.setValueAtTime(freq, now + idx * 0.05);
+
+          noteGain.gain.setValueAtTime(0.45, now + idx * 0.05);
+          noteGain.gain.exponentialRampToValueAtTime(0.01, now + idx * 0.05 + 0.12);
+
+          noteOsc.start(now + idx * 0.05);
+          noteOsc.stop(now + idx * 0.05 + 0.12);
+        });
+      }
+    } catch {
+      /* Audio Synth error */
+    }
+  }, [soundEnabled]);
+
   const playSound = useCallback(
     (
       type:
@@ -329,51 +447,41 @@ export default function GameScreen({
     ) => {
       if (!soundEnabled) return;
 
-      if (type === "levelup") {
-        playAudioFile("bolumbitimi.mp3");
-      } else if (type === "perfectclear") {
+      if (type === "perfectclear") {
         playAudioFile("victory.mp3");
       } else if (type === "start") {
         playAudioFile("baslangic.mp3");
-      } else if (type === "grab") {
-        playAudioFile("blok.mp3");
-      } else if (type === "place") {
-        playAudioFile("blokbirakma.wav");
-      } else if (type === "warning") {
-        playAudioFile("masadolumu.mp3");
       } else if (type === "gameover") {
         if (gameDifficulty >= 5) {
           playAudioFile("5bolumgameover.mp3");
         } else {
           playAudioFile("gameover.mp3");
         }
-      } else {
-        if (linesCleared > 0) {
-          playAudioFile("satirsutun2.mp3");
-        }
+      } else if (linesCleared >= 3) {
+        playAudioFile("3blok.mp3");
+      } else if (type === "grab") {
+        playSynthSound("grab");
+      } else if (type === "place") {
+        playSynthSound("place");
+      } else if (type === "warning") {
+        playSynthSound("warning");
+      } else if (linesCleared === 2) {
+        playSynthSound("multi");
+      } else if (comboLevel >= 1) {
+        playSynthSound("combo", comboLevel);
+      } else if (linesCleared === 1) {
+        playSynthSound("clear");
+      }
 
-        if (linesCleared === 2) {
-          playAudioFile("2blok.mp3");
-        } else if (linesCleared >= 3) {
-          playAudioFile("3blok.mp3");
-        } else if (comboLevel === 1) {
-          playAudioFile("combo.wav");
-        } else if (comboLevel >= 2) {
-          playAudioFile("combo2.mp3");
-        } else if (linesCleared > 0) {
-          playAudioFile("satir.mp3");
-        }
-
-        if (Math.random() < 0.3) {
-          if (Math.random() < 0.5) {
-            playAudioFile("woov.mp3");
-          } else {
-            playAudioFile("ilginc.mp3");
-          }
+      if (linesCleared > 0 && Math.random() < 0.25) {
+        if (Math.random() < 0.5) {
+          playAudioFile("woov.mp3");
+        } else {
+          playSynthSound("lively");
         }
       }
     },
-    [soundEnabled, playAudioFile, gameDifficulty]
+    [soundEnabled, playAudioFile, playSynthSound, gameDifficulty]
   );
 
   const playSoundRef = useRef(playSound);
@@ -382,15 +490,10 @@ export default function GameScreen({
   }, [playSound]);
 
   const vibrate = useCallback(
-    (pattern: number | number[]) => {
-      if (!vibrationEnabled) return;
-      try {
-        navigator.vibrate?.(pattern);
-      } catch {
-        /* Vibration error */
-      }
+    (_pattern: number | number[]) => {
+      // Titreşim iptal edildi
     },
-    [vibrationEnabled]
+    []
   );
 
   const [grid, setGrid] = useState<number[][]>(() => createEmptyGrid());
@@ -433,8 +536,6 @@ export default function GameScreen({
 
   const [comboText, setComboText] = useState<string | null>(null);
   const [floatingScores, setFloatingScores] = useState<FloatingScore[]>([]);
-
-  const [shake, setShake] = useState(false);
 
   const maxComboRef = useRef(0);
   const maxMultiClearRef = useRef(0);
@@ -562,7 +663,6 @@ export default function GameScreen({
         setGameOverColor(vibrantColors[Math.floor(Math.random() * vibrantColors.length)]);
 
         playSound("gameover");
-        vibrate([100, 50, 100]);
 
         onGameOver(currentScore, coinsEarned, false, {
           maxCombo: maxComboRef.current,
@@ -575,66 +675,15 @@ export default function GameScreen({
         }, 1500);
       }
     },
-    [playSound, vibrate, onGameOver, coinsEarned]
+    [playSound, onGameOver, coinsEarned]
   );
 
-  const spawnLineExplosionParticles = (rows: number[], cols: number[]) => {
-    const particles: LEDParticle[] = [];
-    const colors = [
-      "#ffe600", "#ff007f", "#00f0ff", "#39ff14", "#ffffff", "#ff9900", 
-      "#b006ff", "#ff7eb9", "#7afcff", "#ff4757", "#00d2ff", "#ff00ff"
-    ];
-    const particleTypes: ("star" | "crystal" | "neon" | "firework" | "square")[] = [
-      "star", "crystal", "neon", "firework", "square"
-    ];
-
-    const generateAtCell = (r: number, c: number) => {
-      const centerX = c * totalCellSize + cellSize / 2;
-      const centerY = r * totalCellSize + cellSize / 2;
-      const count = 2 + Math.floor(Math.random() * 2);
-
-      for (let i = 0; i < count; i++) {
-        const color = colors[Math.floor(Math.random() * colors.length)];
-        const pType = particleTypes[Math.floor(Math.random() * particleTypes.length)];
-        const angle = Math.random() * Math.PI * 2;
-        const speed = 2.5 + Math.random() * 5.5;
-
-        particles.push({
-          id: Math.random(),
-          x: centerX,
-          y: centerY,
-          vx: Math.cos(angle) * speed,
-          vy: Math.sin(angle) * speed - 1.2,
-          color,
-          size: 4 + Math.random() * 7,
-          rotation: Math.random() * 360,
-          vRot: (Math.random() - 0.5) * 35,
-          type: pType,
-          life: 0.85 + Math.random() * 0.25,
-        });
-      }
-    };
-
-    rows.forEach((r) => {
-      for (let c = 0; c < GRID_SIZE; c++) {
-        generateAtCell(r, c);
-      }
-    });
-
-    cols.forEach((c) => {
-      for (let r = 0; r < GRID_SIZE; r++) {
-        if (!rows.includes(r)) {
-          generateAtCell(r, c);
-        }
-      }
-    });
-
-    setLedParticles((prev) => [...prev.slice(-15), ...particles]);
+  const spawnLineExplosionParticles = (_rows: number[], _cols: number[]) => {
+    // Patlama animasyonu parçacıkları kaldırıldı
   };
 
   const runBoardFillSweepEffect = useCallback((onComplete: () => void) => {
     setIsSweepActive(true);
-    playSound("levelup");
 
     for (let r = GRID_SIZE - 1; r >= 0; r--) {
       setTimeout(() => {
@@ -666,15 +715,10 @@ export default function GameScreen({
       setIsSweepActive(false);
       onComplete();
     }, GRID_SIZE * 120 + 300);
-  }, [playSound]);
+  }, []);
 
   const runOpeningFillSweepEffect = useCallback((onComplete: () => void) => {
     setIsSweepActive(true);
-    if (Math.random() < 0.5) {
-      playAudioFile("yenioyun.mp3");
-    } else {
-      playAudioFile("yenioyun2.mp3");
-    }
 
     for (let r = 0; r < GRID_SIZE; r++) {
       setTimeout(() => {
@@ -706,7 +750,7 @@ export default function GameScreen({
       setIsSweepActive(false);
       onComplete();
     }, GRID_SIZE * 100 + 250);
-  }, [playAudioFile]);
+  }, []);
 
   const handlePlacement = useCallback(
     (shapeIndex: number, shape: Shape, row: number, col: number) => {
@@ -786,9 +830,6 @@ export default function GameScreen({
           setTimeout(() => setComboText(null), 1000);
         }
 
-        setShake(true);
-        vibrate(newCombo > 1 ? [30, 20, 30] : 40);
-
         if (totalLines >= 3) {
           playSound("multi", newCombo, totalLines);
         } else if (newCombo > 0) {
@@ -796,7 +837,6 @@ export default function GameScreen({
         } else {
           playSound("clear", newCombo, totalLines);
         }
-        setTimeout(() => setShake(false), 300);
 
         if (isBoardEmpty) {
           setShowPerfectClear(true);
@@ -830,7 +870,6 @@ export default function GameScreen({
         }
       } else {
         playSound("place");
-        vibrate(15);
       }
 
       const remainingShapes = shapes.map((s, index) =>
@@ -868,7 +907,6 @@ export default function GameScreen({
       shapes,
       combo,
       checkGameOver,
-      vibrate,
       playSound,
       score,
       gameDifficulty,
@@ -965,7 +1003,6 @@ export default function GameScreen({
     }
 
     playSound("grab");
-    vibrate(10);
 
     const isTouch = e.pointerType === "touch";
 
@@ -991,7 +1028,6 @@ export default function GameScreen({
     (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
   };
 
-  // Optimize Sürükleme Mantığı (Geri Bildirim Kaybı Olmadan Donanım Destekli)
   const handlePointerMove = (e: React.PointerEvent) => {
     if (!dragRef.current) return;
     e.preventDefault();
@@ -1247,7 +1283,6 @@ export default function GameScreen({
         WebkitUserSelect: "none",
         touchAction: "none",
         transition: "background 1s ease-in-out",
-        animation: shake ? "shake 0.3s ease" : "none",
         position: "relative",
         overflow: "hidden",
       }}
@@ -1264,14 +1299,6 @@ export default function GameScreen({
           filter: brightness(1.1) saturate(1.2);
           will-change: transform;
           transform: translateZ(0);
-        }
-        @keyframes shake {
-          0% { transform: translate(0, 0); }
-          20% { transform: translate(-4px, 3px); }
-          40% { transform: translate(4px, -3px); }
-          60% { transform: translate(-3px, 2px); }
-          80% { transform: translate(3px, -2px); }
-          100% { transform: translate(0, 0); }
         }
         @keyframes bgMatchingGlowPulse {
           0% { box-shadow: 0 0 18px #00d2ff, inset 0 0 15px rgba(0, 210, 255, 0.4); border-color: #00d2ff; }
@@ -1545,7 +1572,6 @@ export default function GameScreen({
               height: cellSize,
               borderRadius: 6,
               background: "linear-gradient(90deg, transparent, #ff007f, #ffffff, #00f0ff, transparent)",
-              boxShadow: "0 0 20px #00f0ff, 0 0 40px #ff007f",
               pointerEvents: "none",
               zIndex: 30,
               animation: "lineClearFlash 0.25s ease-out forwards",
@@ -1564,39 +1590,9 @@ export default function GameScreen({
               height: GRID_SIZE * totalCellSize - gap,
               borderRadius: 6,
               background: "linear-gradient(180deg, transparent, #ff007f, #ffffff, #00f0ff, transparent)",
-              boxShadow: "0 0 20px #ff007f, 0 0 40px #00f0ff",
               pointerEvents: "none",
               zIndex: 30,
               animation: "lineClearFlash 0.25s ease-out forwards",
-              willChange: "transform",
-            }}
-          />
-        ))}
-
-        {ledParticles.map((p) => (
-          <div
-            key={p.id}
-            style={{
-              position: "absolute",
-              transform: `translate3d(${(p.x)}px, ${(p.y)}px, 0) translate(-50%, -50%) rotate(${p.rotation}deg)`,
-              width: p.size,
-              height: p.size,
-              background: p.color,
-              borderRadius: p.type === "square" ? 2 : p.type === "neon" ? "50%" : 0,
-              clipPath:
-                p.type === "star"
-                  ? "polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%)"
-                  : p.type === "butterfly"
-                  ? "polygon(50% 0%, 100% 38%, 82% 100%, 50% 75%, 18% 100%, 0% 38%)"
-                  : p.type === "crystal"
-                  ? "polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)"
-                  : p.type === "firework"
-                  ? "polygon(50% 0%, 65% 35%, 100% 50%, 65% 65%, 50% 100%, 35% 65%, 0% 50%, 35% 35%)"
-                  : "none",
-              boxShadow: `0 0 ${p.size * 1.8}px ${p.color}`,
-              pointerEvents: "none",
-              zIndex: 40,
-              opacity: p.life ?? 1,
               willChange: "transform",
             }}
           />
