@@ -85,15 +85,20 @@ const sanitizeShape = (shape: Shape): Shape => {
   };
 };
 
-const evaluateShapeForGrid = (shape: Shape, g: number[][]): number => {
-  let cellCount = 0;
-  for (let sr = 0; sr < shape.height; sr++) {
-    for (let sc = 0; sc < shape.width; sc++) {
-      if (shape.cells[sr]?.[sc]) cellCount++;
+const getShapeCellCount = (shape: Shape): number => {
+  let count = 0;
+  for (let r = 0; r < shape.height; r++) {
+    for (let c = 0; c < shape.width; c++) {
+      if (shape.cells[r]?.[c]) count++;
     }
   }
+  return count;
+};
 
+const evaluateShapeForGrid = (shape: Shape, g: number[][]): number => {
+  const cellCount = getShapeCellCount(shape);
   let maxScore = -1;
+
   for (let r = 0; r < GRID_SIZE; r++) {
     for (let c = 0; c < GRID_SIZE; c++) {
       if (canPlaceShape(g, shape, r, c)) {
@@ -101,8 +106,6 @@ const evaluateShapeForGrid = (shape: Shape, g: number[][]): number => {
         const { linesCleared } = clearLines(testGrid);
 
         let fillBonus = 0;
-        let adjacencyBonus = 0;
-
         for (let sr = 0; sr < shape.height; sr++) {
           for (let sc = 0; sc < shape.width; sc++) {
             if (shape.cells[sr]?.[sc]) {
@@ -115,26 +118,16 @@ const evaluateShapeForGrid = (shape: Shape, g: number[][]): number => {
                 if (g[i]?.[gc]) colFill++;
               }
               fillBonus += rowFill + colFill;
-
-              const neighbors = [
-                [gr - 1, gc],
-                [gr + 1, gc],
-                [gr, gc - 1],
-                [gr, gc + 1],
-              ];
-              for (const [nr, nc] of neighbors) {
-                if (nr >= 0 && nr < GRID_SIZE && nc >= 0 && nc < GRID_SIZE) {
-                  if (g[nr]?.[nc]) adjacencyBonus += 120;
-                }
-              }
             }
           }
         }
 
-        const simplicityBonus = (9 - cellCount) * 50;
-        const score = linesCleared * 100000 + fillBonus * 100 + adjacencyBonus * 150 + simplicityBonus + 1;
-        if (score > maxScore) {
-          maxScore = score;
+        if (linesCleared > 0) {
+          const score = linesCleared * 1000000 + fillBonus * 100;
+          if (score > maxScore) maxScore = score;
+        } else {
+          const score = (9 - cellCount) * 2000 + fillBonus * 10;
+          if (score > maxScore) maxScore = score;
         }
       }
     }
@@ -155,41 +148,63 @@ const getValidShapes = (
 
   if (!currentGrid) {
     const valid: Shape[] = [];
-    while (valid.length < 3) {
+    let attempts = 0;
+    while (valid.length < 3 && attempts < 50) {
+      attempts++;
       const shape = getRandomShape(level);
-      if (shape) valid.push(shape);
+      if (shape && !valid.some(v => JSON.stringify(v.cells) === JSON.stringify(shape.cells))) {
+        valid.push(shape);
+      }
     }
     return valid;
   }
 
-  // Tahta durumuna göre şekil üretimi
-  const candidates: { shape: Shape; score: number }[] = [];
+  const candidates: { shape: Shape; score: number; cellCount: number }[] = [];
   let attempts = 0;
 
-  while (candidates.length < 250 && attempts < 800) {
+  while (candidates.length < 35 && attempts < 120) {
     attempts++;
     const shape = getRandomShape(level);
     if (shape && canPlaceAnywhere(currentGrid, shape)) {
+      const cellCount = getShapeCellCount(shape);
       const score = evaluateShapeForGrid(shape, currentGrid);
-      candidates.push({ shape, score });
+      candidates.push({ shape, score, cellCount });
     }
   }
 
-  // Ağırlıklı seçim ve çizgi temizleme potansiyeline öncelik verme
+  if (candidates.length === 0) {
+    return generateThreeShapes(1).slice(0, 3).map(sanitizeShape);
+  }
+
   candidates.sort((a, b) => b.score - a.score);
 
   const selected: Shape[] = [];
   let simGrid = currentGrid.map((r) => [...r]);
 
   for (let i = 0; i < 3; i++) {
-    const validForSim = candidates.filter((c) => canPlaceAnywhere(simGrid, c.shape));
+    let validForSim = candidates.filter((c) => canPlaceAnywhere(simGrid, c.shape));
+
+    const uniqueValidForSim = validForSim.filter(
+      (c) => !selected.some((s) => JSON.stringify(s.cells) === JSON.stringify(c.shape.cells))
+    );
+
+    if (uniqueValidForSim.length > 0) {
+      validForSim = uniqueValidForSim;
+    }
+
+    const hasSmallShape = selected.some((s) => getShapeCellCount(s) <= 4);
+    if (!hasSmallShape && i === 2) {
+      const smallCandidates = validForSim.filter((c) => c.cellCount <= 4);
+      if (smallCandidates.length > 0) {
+        validForSim = smallCandidates;
+      }
+    }
+
     if (validForSim.length > 0) {
-      // Çizgi tamamlama ihtimali yüksek olan iyi şekiller arasından rastgele seçim yap
-      const topPoolSize = Math.min(validForSim.length, 12);
+      const topPoolSize = Math.min(validForSim.length, 8);
       const chosen = validForSim[Math.floor(Math.random() * topPoolSize)].shape;
       selected.push(chosen);
 
-      // Simülasyon gridini güncelle
       let placed = false;
       for (let r = 0; r < GRID_SIZE && !placed; r++) {
         for (let c = 0; c < GRID_SIZE && !placed; c++) {
@@ -201,23 +216,12 @@ const getValidShapes = (
           }
         }
       }
-    } else {
-      // Yedek olarak kesinleşmiş yerleşebilir basit şekil üret
-      let fallbackAttempts = 0;
-      while (fallbackAttempts < 100) {
-        fallbackAttempts++;
-        const shape = getRandomShape(level);
-        if (shape && canPlaceAnywhere(simGrid, shape)) {
-          selected.push(shape);
-          break;
-        }
-      }
+    } else if (candidates.length > 0) {
+      const fallback = candidates.find(
+        (c) => !selected.some((s) => JSON.stringify(s.cells) === JSON.stringify(c.shape.cells))
+      ) || candidates[0];
+      selected.push(fallback.shape);
     }
-  }
-
-  // 3 şekil tamamlanamadıysa varsayılan üret
-  while (selected.length < 3) {
-    selected.push(getRandomShape(level));
   }
 
   return selected.sort(() => Math.random() - 0.5);
@@ -256,7 +260,6 @@ export default function GameScreen({
   const audioCtxRef = useRef<AudioContext | null>(null);
   const audioBuffersRef = useRef<Record<string, AudioBuffer>>({});
 
-  // Korumaya alınan seslerin yüklenmesi (Güncellenmiş mp3 dosyaları ile)
   useEffect(() => {
     const soundFiles = [
       "yeni_baslangic.mp3",
@@ -264,7 +267,9 @@ export default function GameScreen({
       "5bolumgameover.mp3",
       "3blok.mp3",
       "yeni_victory.mp3",
-      "yeni_woov.mp3"
+      "yeni_woov.mp3",
+      "cekme.ogg",
+      "birakma.ogg"
     ];
 
     const initWebAudio = async () => {
@@ -302,7 +307,6 @@ export default function GameScreen({
     }
   }, [soundEnabled]);
 
-  // MP3 Çalma Yardımcısı
   const playAudioFile = useCallback((filename: string) => {
     if (!soundEnabled) return;
     try {
@@ -326,8 +330,8 @@ export default function GameScreen({
     }
   }, [soundEnabled]);
 
-  // Web Audio Synthesizer - İstenen Değişikliklere Göre Yeniden Düzenlenen Ses Efektleri
-  const playSynthSound = useCallback((type: "grab" | "place" | "clear" | "multi" | "combo" | "warning" | "lively" | "start_fanfare" | "double_clear", level: number = 0) => {
+  // Yeni, Canlı ve Sevecen Web Audio Sentezleyicisi
+  const playSynthSound = useCallback((type: "grab" | "place" | "clear_1" | "clear_2" | "clear_3" | "clear_4" | "clear_5" | "combo_lively" | "warning" | "lively" | "start_fanfare", level: number = 0) => {
     if (!soundEnabled) return;
     try {
       if (!audioCtxRef.current) {
@@ -341,146 +345,88 @@ export default function GameScreen({
 
       const now = ctx.currentTime;
 
+      // Yardımcı tatlı nota oluşturucu (Soft sine + triangle tonları)
+      const playTone = (freq: number, startTime: number, duration: number, type: OscillatorType = "sine", vol: number = 0.3, pitchSlide?: number) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, startTime);
+        if (pitchSlide) {
+          osc.frequency.exponentialRampToValueAtTime(pitchSlide, startTime + duration);
+        }
+
+        gain.gain.setValueAtTime(0, startTime);
+        gain.gain.linearRampToValueAtTime(vol, startTime + 0.015);
+        gain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+
+        osc.start(startTime);
+        osc.stop(startTime + duration);
+      };
+
       if (type === "start_fanfare") {
-        // 1-) Oyun başlangıcı için daha güzel, parlak ve zengin başlangıç efekti
-        const notes = [261.63, 329.63, 392.00, 523.25, 659.25, 783.99];
+        // Yumuşak, neşeli oyun başlangıcı
+        const notes = [523.25, 659.25, 783.99, 987.77, 1046.50, 1318.51];
         notes.forEach((freq, idx) => {
-          const osc = ctx.createOscillator();
-          const gain = ctx.createGain();
-          osc.type = "triangle";
-          osc.frequency.setValueAtTime(freq, now + idx * 0.06);
-
-          gain.gain.setValueAtTime(0, now + idx * 0.06);
-          gain.gain.linearRampToValueAtTime(0.3, now + idx * 0.06 + 0.02);
-          gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.06 + 0.35);
-
-          osc.connect(gain);
-          gain.connect(ctx.destination);
-
-          osc.start(now + idx * 0.06);
-          osc.stop(now + idx * 0.06 + 0.35);
+          playTone(freq, now + idx * 0.05, 0.35, "sine", 0.25);
+          playTone(freq * 0.5, now + idx * 0.05, 0.35, "triangle", 0.15);
         });
       } else if (type === "grab") {
-        // 2-) Blok çekme efekti (Daha canlı, yaylı/pop vuruşu)
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = "sine";
-        osc.frequency.setValueAtTime(320, now);
-        osc.frequency.exponentialRampToValueAtTime(780, now + 0.07);
-
-        gain.gain.setValueAtTime(0.5, now);
-        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.07);
-
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start(now);
-        osc.stop(now + 0.07);
+        // Tatlı su damlası / baloncuk "pop" sesi
+        playTone(420, now, 0.08, "sine", 0.35, 880);
+        playTone(840, now + 0.01, 0.06, "triangle", 0.15);
       } else if (type === "place") {
-        // 2-) Blok bırakma efekti (Daha canlı ve tok "Pop" efekti)
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = "triangle";
-        osc.frequency.setValueAtTime(450, now);
-        osc.frequency.exponentialRampToValueAtTime(150, now + 0.08);
-
-        gain.gain.setValueAtTime(0.6, now);
-        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.08);
-
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start(now);
-        osc.stop(now + 0.08);
-      } else if (type === "double_clear") {
-        // 4-) 2'li blok patlamalarına özel canlı çift ton efekti
-        const freqs = [523.25, 659.25, 1046.50];
-        freqs.forEach((freq, idx) => {
-          const osc = ctx.createOscillator();
-          const gain = ctx.createGain();
-          osc.type = "sine";
-          osc.frequency.setValueAtTime(freq, now + idx * 0.05);
-
-          gain.gain.setValueAtTime(0.5, now + idx * 0.05);
-          gain.gain.exponentialRampToValueAtTime(0.01, now + idx * 0.05 + 0.2);
-
-          osc.connect(gain);
-          gain.connect(ctx.destination);
-          osc.start(now + idx * 0.05);
-          osc.stop(now + idx * 0.05 + 0.2);
-        });
+        // Doyurucu, jelatinimsi "snap" oturtma sesi
+        playTone(750, now, 0.06, "sine", 0.4, 220);
+        playTone(1100, now, 0.03, "triangle", 0.2, 350);
       } else if (type === "warning") {
-        // 3-) Masa %50 veya daha fazla dolunca dikkat çekici "bitiyor" uyarısı efekti
-        const notes = [880, 440, 880, 440];
+        // Sert bip yerine tatlı, yumuşak marimba nabız ritmi
+        const notes = [440, 554.37];
         notes.forEach((freq, idx) => {
-          const osc = ctx.createOscillator();
-          const gain = ctx.createGain();
-          osc.type = "square";
-          osc.frequency.setValueAtTime(freq, now + idx * 0.12);
-
-          gain.gain.setValueAtTime(0.25, now + idx * 0.12);
-          gain.gain.exponentialRampToValueAtTime(0.01, now + idx * 0.12 + 0.1);
-
-          osc.connect(gain);
-          gain.connect(ctx.destination);
-          osc.start(now + idx * 0.12);
-          osc.stop(now + idx * 0.12 + 0.1);
+          playTone(freq, now + idx * 0.12, 0.2, "sine", 0.2);
         });
-      } else if (type === "clear") {
-        // Tek Çizgi Patlama
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = "sine";
-        osc.frequency.setValueAtTime(520, now);
-        osc.frequency.exponentialRampToValueAtTime(880, now + 0.12);
-        gain.gain.setValueAtTime(0.35, now);
-        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.12);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start(now);
-        osc.stop(now + 0.12);
-      } else if (type === "multi") {
-        // 3+ Çizgi Patlama
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = "square";
-        osc.frequency.setValueAtTime(440, now);
-        osc.frequency.exponentialRampToValueAtTime(1050, now + 0.18);
-        gain.gain.setValueAtTime(0.3, now);
-        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.18);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start(now);
-        osc.stop(now + 0.18);
-      } else if (type === "combo") {
-        // Combo x1, x2, x3, x4, x5+
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        const baseFreq = 400 + Math.min(level, 6) * 120;
-        osc.type = "sine";
-        osc.frequency.setValueAtTime(baseFreq, now);
-        osc.frequency.exponentialRampToValueAtTime(baseFreq * 1.5, now + 0.15);
-        gain.gain.setValueAtTime(0.4, now);
-        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start(now);
-        osc.stop(now + 0.15);
+      } else if (type === "clear_1") {
+        // 1 Çizgi: Pırıl pırıl ikili çan (E6 -> A6)
+        playTone(1318.51, now, 0.22, "sine", 0.3);
+        playTone(1760.00, now + 0.06, 0.28, "sine", 0.35);
+      } else if (type === "clear_2") {
+        // 2 Çizgi: Neşeli Majör akor (C6 -> E6 -> G6 -> C7)
+        const freqs = [1046.50, 1318.51, 1567.98, 2093.00];
+        freqs.forEach((freq, idx) => {
+          playTone(freq, now + idx * 0.05, 0.25, "sine", 0.3);
+          playTone(freq * 0.5, now + idx * 0.05, 0.25, "triangle", 0.15);
+        });
+      } else if (type === "clear_3") {
+        // 3 Çizgi: Büyülü yükselen zil arpeji
+        const freqs = [1046.50, 1318.51, 1567.98, 1975.53, 2093.00, 2637.02];
+        freqs.forEach((freq, idx) => {
+          playTone(freq, now + idx * 0.04, 0.3, "sine", 0.28);
+        });
+      } else if (type === "clear_4") {
+        // 4 Çizgi: Muhteşem arcade coşkusu majör 9'lu akor
+        const freqs = [523.25, 659.25, 783.99, 987.77, 1174.66, 1318.51, 1567.98, 2093.00];
+        freqs.forEach((freq, idx) => {
+          playTone(freq, now + idx * 0.035, 0.35, "sine", 0.25);
+          playTone(freq * 1.005, now + idx * 0.035, 0.35, "triangle", 0.15);
+        });
+      } else if (type === "clear_5") {
+        // 5 Çizgi: Efsanevi Gökkuşağı şelalesi efekti
+        const freqs = [523.25, 587.33, 659.25, 783.99, 880.00, 1046.50, 1174.66, 1318.51, 1567.98, 1760.00, 2093.00];
+        freqs.forEach((freq, idx) => {
+          playTone(freq, now + idx * 0.03, 0.4, "sine", 0.25);
+          playTone(freq * 0.5, now + idx * 0.03, 0.4, "triangle", 0.12);
+        });
+      } else if (type === "combo_lively") {
+        // Kombo arttıkça sekerek yükselen sevecen ton
+        const baseFreq = 523.25 + Math.min(level, 10) * 80;
+        playTone(baseFreq, now, 0.18, "sine", 0.35, baseFreq * 1.35);
+        playTone(baseFreq * 1.5, now + 0.04, 0.22, "triangle", 0.2, baseFreq * 1.8);
       } else if (type === "lively") {
-        const notes = [523.25, 659.25, 783.99, 1046.50];
-        notes.forEach((freq, idx) => {
-          const noteOsc = ctx.createOscillator();
-          const noteGain = ctx.createGain();
-          noteOsc.connect(noteGain);
-          noteGain.connect(ctx.destination);
-
-          noteOsc.type = "sine";
-          noteOsc.frequency.setValueAtTime(freq, now + idx * 0.05);
-
-          noteGain.gain.setValueAtTime(0.45, now + idx * 0.05);
-          noteGain.gain.exponentialRampToValueAtTime(0.01, now + idx * 0.05 + 0.12);
-
-          noteOsc.start(now + idx * 0.05);
-          noteOsc.stop(now + idx * 0.05 + 0.12);
-        });
+        // Tatlı çizgi film "woop!" sesi
+        playTone(600, now, 0.15, "sine", 0.3, 1400);
       }
     } catch {
       /* Audio Synth error */
@@ -507,8 +453,8 @@ export default function GameScreen({
 
       if (type === "perfectclear") {
         playAudioFile("yeni_victory.mp3");
+        playSynthSound("clear_5");
       } else if (type === "start") {
-        // 1-) Başlangıçta hem mp3 hem de synth melodiyi çal
         playAudioFile("yeni_baslangic.mp3");
         playSynthSound("start_fanfare");
       } else if (type === "gameover") {
@@ -517,21 +463,29 @@ export default function GameScreen({
         } else {
           playAudioFile("gameover.mp3");
         }
-      } else if (linesCleared >= 3) {
-        playAudioFile("3blok.mp3");
-      } else if (linesCleared === 2) {
-        // 4-) 2'li blok patlamasında özel ses efekti tetikle
-        playSynthSound("double_clear");
       } else if (type === "grab") {
         playSynthSound("grab");
       } else if (type === "place") {
         playSynthSound("place");
       } else if (type === "warning") {
         playSynthSound("warning");
-      } else if (comboLevel >= 1) {
-        playSynthSound("combo", comboLevel);
-      } else if (linesCleared === 1) {
-        playSynthSound("clear");
+      } else if (type === "clear" || type === "multi" || type === "combo") {
+        
+        if (comboLevel >= 1) {
+          playSynthSound("combo_lively", comboLevel);
+        }
+
+        if (linesCleared >= 5) {
+          playSynthSound("clear_5");
+        } else if (linesCleared === 4) {
+          playSynthSound("clear_4");
+        } else if (linesCleared === 3) {
+          playSynthSound("clear_3");
+        } else if (linesCleared === 2) {
+          playSynthSound("clear_2");
+        } else if (linesCleared === 1) {
+          playSynthSound("clear_1");
+        }
       }
 
       if (linesCleared > 0 && Math.random() < 0.25) {
@@ -549,13 +503,6 @@ export default function GameScreen({
   useEffect(() => {
     playSoundRef.current = playSound;
   }, [playSound]);
-
-  const vibrate = useCallback(
-    (_pattern: number | number[]) => {
-      // Titreşim iptal edildi
-    },
-    []
-  );
 
   const [grid, setGrid] = useState<number[][]>(() => createEmptyGrid());
   const [shapes, setShapes] = useState<(Shape | null)[]>(() =>
@@ -646,7 +593,6 @@ export default function GameScreen({
     dragRef.current = drag;
   }, [drag]);
 
-  // Particle Animatörü Optimizasyonu (60FPS senkronizasyonlu)
   useEffect(() => {
     if (ledParticles.length === 0) return;
     let animId: number;
@@ -679,7 +625,6 @@ export default function GameScreen({
     return () => cancelAnimationFrame(animId);
   }, [ledParticles.length > 0]);
 
-  // 3-) Masa %50 ve üzeri dolduğunda "bitiyor" uyarı sesi tetiklemesi
   useEffect(() => {
     let filled = 0;
     for (const row of grid) for (const cell of row) if (cell) filled++;
@@ -739,10 +684,6 @@ export default function GameScreen({
     },
     [playSound, onGameOver, coinsEarned]
   );
-
-  const spawnLineExplosionParticles = (_rows: number[], _cols: number[]) => {
-    // Patlama animasyonu parçacıkları kaldırıldı
-  };
 
   const runBoardFillSweepEffect = useCallback((onComplete: () => void) => {
     setIsSweepActive(true);
@@ -880,8 +821,6 @@ export default function GameScreen({
         setTimeout(() => {
           setFloatingScores((prev) => prev.filter((f) => f.id !== newFloatingId));
         }, 900);
-
-        spawnLineExplosionParticles(clearedRows, clearedCols);
 
         const praiseWord = PRAISE_WORDS[Math.floor(Math.random() * PRAISE_WORDS.length)];
         if (newCombo > 1) {
@@ -1361,7 +1300,6 @@ export default function GameScreen({
           border-right: 2.5px solid rgba(0, 0, 0, 0.4);
           border-bottom: 2.5px solid rgba(0, 0, 0, 0.6);
           box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15), 0 3px 6px rgba(0, 0, 0, 0.35);
-          filter: brightness(1.1) saturate(1.2);
           will-change: transform;
           transform: translateZ(0);
         }
@@ -1397,12 +1335,12 @@ export default function GameScreen({
         }
         @keyframes lineClearGlow {
           0% { opacity: 1; transform: scale(0.98); }
-          50% { opacity: 1; transform: scale(1.1); filter: brightness(2); }
+          50% { opacity: 1; transform: scale(1.15); }
           100% { opacity: 0; transform: scale(0.3); }
         }
         @keyframes lineClearFlash {
           0% { opacity: 0; transform: scaleX(0.8); }
-          50% { opacity: 1; transform: scaleX(1.05); filter: brightness(2.5); }
+          50% { opacity: 1; transform: scaleX(1.05); }
           100% { opacity: 0; transform: scaleX(1); }
         }
         @keyframes popSquare {
@@ -1417,7 +1355,7 @@ export default function GameScreen({
         }
       `}</style>
 
-      {/* Üst Bar / Skor Tabela */}
+      {/* Üst Bar */}
       <div
         style={{
           width: "100%",
@@ -1431,7 +1369,6 @@ export default function GameScreen({
       >
         <div style={{ width: 32 }} />
 
-        {/* Çift Daireli Skor Çubuğu */}
         <div
           style={{
             position: "relative",
@@ -1455,7 +1392,6 @@ export default function GameScreen({
             }}
           />
 
-          {/* Sol Daire: Anlık Skor */}
           <div
             style={{
               position: "relative",
@@ -1479,7 +1415,6 @@ export default function GameScreen({
             {displayScore}
           </div>
 
-          {/* Sağ Daire: En Yüksek Skor */}
           <div
             style={{
               position: "relative",
@@ -1537,7 +1472,7 @@ export default function GameScreen({
         </button>
       </div>
 
-      {/* Oyun Tahtası (8x8) */}
+      {/* Oyun Tahtası */}
       <div
         ref={gridRef}
         style={{
@@ -1613,12 +1548,12 @@ export default function GameScreen({
                     : "rgba(255,255,255,0.05)",
                   borderRadius: cell ? 2 : 4,
                   boxSizing: "border-box",
-                  transition: "background 0.15s ease",
+                  transition: isClearingCell ? "none" : "background 0.15s ease",
                   animation: isClearingCell
                     ? "lineClearGlow 0.25s ease-out forwards"
                     : "none",
                   zIndex: isClearingCell ? 20 : 1,
-                  willChange: "transform",
+                  willChange: isClearingCell ? "transform, opacity" : "transform",
                 }}
               />
             );
@@ -1640,7 +1575,7 @@ export default function GameScreen({
               pointerEvents: "none",
               zIndex: 30,
               animation: "lineClearFlash 0.25s ease-out forwards",
-              willChange: "transform",
+              willChange: "transform, opacity",
             }}
           />
         ))}
@@ -1658,7 +1593,7 @@ export default function GameScreen({
               pointerEvents: "none",
               zIndex: 30,
               animation: "lineClearFlash 0.25s ease-out forwards",
-              willChange: "transform",
+              willChange: "transform, opacity",
             }}
           />
         ))}
@@ -1866,7 +1801,7 @@ export default function GameScreen({
         ))}
       </div>
 
-      {/* Sürüklenen Şekil Önizlemesi */}
+      {/* Sürüklenen Şekil */}
       {drag && (
         <div style={getDragGhostStyle()}>
           {drag.shape.cells.map((row, r) =>
