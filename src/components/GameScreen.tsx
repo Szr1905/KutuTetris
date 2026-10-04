@@ -71,6 +71,17 @@ const BACKGROUND_GRADIENTS = [
   "linear-gradient(180deg, #4b6cb7 0%, #182848 100%)",
 ];
 
+// Arka plan gradyanlarına tam uyumlu olacak şekilde belirlenmiş canlı blok renkleri
+const THEME_COLORS = [
+  "#38bdf8", // Mavi
+  "#2dd4bf", // Turkuaz
+  "#60a5fa", // Açık Mavi
+  "#f87171", // Kırmızı / Turuncu
+  "#c084fc", // Mor
+  "#3b82f6", // Koyu Mavi
+  "#818cf8", // Çivit Mavisi
+];
+
 const STORAGE_KEY = "kutu_tetris_saved_state";
 const PRAISE_WORDS = ["Woov!", "Süper!", "Harika!", "İlginç!", "Muhteşem!", "Vov!"];
 
@@ -227,6 +238,30 @@ const getValidShapes = (
   return selected.sort(() => Math.random() - 0.5);
 };
 
+const applyLevelObstacles = (currentGrid: number[][], level: number) => {
+  const newGrid = currentGrid.map((row) => [...row]);
+  if (level < 5) return newGrid;
+
+  const patterns = [
+    [[3, 3], [3, 4], [4, 3], [4, 4]], 
+    [[1, 1], [1, 6], [6, 1], [6, 6]], 
+    [[2, 4], [3, 4], [4, 4], [5, 4]], 
+    [[4, 2], [4, 3], [4, 4], [4, 5]], 
+    [[2, 2], [3, 3], [4, 4], [5, 5]], 
+  ];
+
+  const patternIndex = (level - 5) % patterns.length;
+  const selectedPattern = patterns[patternIndex];
+
+  selectedPattern.forEach(([r, c]) => {
+    if (newGrid[r] && newGrid[r][c] === 0) {
+      newGrid[r][c] = Math.floor(Math.random() * 7) + 1;
+    }
+  });
+
+  return newGrid;
+};
+
 export default function GameScreen({
   theme,
   bestScore,
@@ -253,6 +288,7 @@ export default function GameScreen({
   const [gameDifficulty, setGameDifficulty] = useState(savedState?.gameDifficulty ?? 1);
   const [clearedCount, setClearedCount] = useState(savedState?.clearedCount ?? 0);
   const [levelBlocksPlaced, setLevelBlocksPlaced] = useState(savedState?.levelBlocksPlaced ?? 0);
+  const [totalLinesCleared, setTotalLinesCleared] = useState(savedState?.totalLinesCleared ?? 0);
 
   const [levelUpText] = useState<string | null>(null);
   const [isSweepActive, setIsSweepActive] = useState(false);
@@ -330,7 +366,6 @@ export default function GameScreen({
     }
   }, [soundEnabled]);
 
-  // Yeni, Canlı ve Sevecen Web Audio Sentezleyicisi
   const playSynthSound = useCallback((type: "grab" | "place" | "clear_1" | "clear_2" | "clear_3" | "clear_4" | "clear_5" | "combo_lively" | "warning" | "lively" | "start_fanfare", level: number = 0) => {
     if (!soundEnabled) return;
     try {
@@ -345,7 +380,6 @@ export default function GameScreen({
 
       const now = ctx.currentTime;
 
-      // Yardımcı tatlı nota oluşturucu (Soft sine + triangle tonları)
       const playTone = (freq: number, startTime: number, duration: number, type: OscillatorType = "sine", vol: number = 0.3, pitchSlide?: number) => {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
@@ -368,64 +402,53 @@ export default function GameScreen({
       };
 
       if (type === "start_fanfare") {
-        // Yumuşak, neşeli oyun başlangıcı
         const notes = [523.25, 659.25, 783.99, 987.77, 1046.50, 1318.51];
         notes.forEach((freq, idx) => {
           playTone(freq, now + idx * 0.05, 0.35, "sine", 0.25);
           playTone(freq * 0.5, now + idx * 0.05, 0.35, "triangle", 0.15);
         });
       } else if (type === "grab") {
-        // Tatlı su damlası / baloncuk "pop" sesi
         playTone(420, now, 0.08, "sine", 0.35, 880);
         playTone(840, now + 0.01, 0.06, "triangle", 0.15);
       } else if (type === "place") {
-        // Doyurucu, jelatinimsi "snap" oturtma sesi
         playTone(750, now, 0.06, "sine", 0.4, 220);
         playTone(1100, now, 0.03, "triangle", 0.2, 350);
       } else if (type === "warning") {
-        // Sert bip yerine tatlı, yumuşak marimba nabız ritmi
         const notes = [440, 554.37];
         notes.forEach((freq, idx) => {
           playTone(freq, now + idx * 0.12, 0.2, "sine", 0.2);
         });
       } else if (type === "clear_1") {
-        // 1 Çizgi: Pırıl pırıl ikili çan (E6 -> A6)
         playTone(1318.51, now, 0.22, "sine", 0.3);
         playTone(1760.00, now + 0.06, 0.28, "sine", 0.35);
       } else if (type === "clear_2") {
-        // 2 Çizgi: Neşeli Majör akor (C6 -> E6 -> G6 -> C7)
         const freqs = [1046.50, 1318.51, 1567.98, 2093.00];
         freqs.forEach((freq, idx) => {
           playTone(freq, now + idx * 0.05, 0.25, "sine", 0.3);
           playTone(freq * 0.5, now + idx * 0.05, 0.25, "triangle", 0.15);
         });
       } else if (type === "clear_3") {
-        // 3 Çizgi: Büyülü yükselen zil arpeji
         const freqs = [1046.50, 1318.51, 1567.98, 1975.53, 2093.00, 2637.02];
         freqs.forEach((freq, idx) => {
           playTone(freq, now + idx * 0.04, 0.3, "sine", 0.28);
         });
       } else if (type === "clear_4") {
-        // 4 Çizgi: Muhteşem arcade coşkusu majör 9'lu akor
         const freqs = [523.25, 659.25, 783.99, 987.77, 1174.66, 1318.51, 1567.98, 2093.00];
         freqs.forEach((freq, idx) => {
           playTone(freq, now + idx * 0.035, 0.35, "sine", 0.25);
           playTone(freq * 1.005, now + idx * 0.035, 0.35, "triangle", 0.15);
         });
       } else if (type === "clear_5") {
-        // 5 Çizgi: Efsanevi Gökkuşağı şelalesi efekti
         const freqs = [523.25, 587.33, 659.25, 783.99, 880.00, 1046.50, 1174.66, 1318.51, 1567.98, 1760.00, 2093.00];
         freqs.forEach((freq, idx) => {
           playTone(freq, now + idx * 0.03, 0.4, "sine", 0.25);
           playTone(freq * 0.5, now + idx * 0.03, 0.4, "triangle", 0.12);
         });
       } else if (type === "combo_lively") {
-        // Kombo arttıkça sekerek yükselen sevecen ton
         const baseFreq = 523.25 + Math.min(level, 10) * 80;
         playTone(baseFreq, now, 0.18, "sine", 0.35, baseFreq * 1.35);
         playTone(baseFreq * 1.5, now + 0.04, 0.22, "triangle", 0.2, baseFreq * 1.8);
       } else if (type === "lively") {
-        // Tatlı çizgi film "woop!" sesi
         playTone(600, now, 0.15, "sine", 0.3, 1400);
       }
     } catch {
@@ -578,12 +601,13 @@ export default function GameScreen({
         bgIndex,
         coinsEarned,
         levelBlocksPlaced,
+        totalLinesCleared, 
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(stateToSave));
     } catch {
       /* localStorage write error */
     }
-  }, [score, currentBestScore, gameDifficulty, clearedCount, bgIndex, coinsEarned, levelBlocksPlaced, gameOver]);
+  }, [score, currentBestScore, gameDifficulty, clearedCount, bgIndex, coinsEarned, levelBlocksPlaced, totalLinesCleared, gameOver]);
 
   useEffect(() => {
     gridStateRef.current = grid;
@@ -805,6 +829,13 @@ export default function GameScreen({
       setCoinsEarned((c) => c + coins);
       setCombo(newCombo);
 
+      const newTotalLinesCleared = totalLinesCleared + totalLines;
+      setTotalLinesCleared(newTotalLinesCleared);
+      
+      let nextDiff = gameDifficulty;
+      const linesNeededForNextLevel = gameDifficulty * 10;
+      let isLevelUp = newTotalLinesCleared >= linesNeededForNextLevel;
+
       if (totalLines > 0) {
         const isBoardEmpty = clearedGrid.every((r) => r.every((cell) => cell === 0));
 
@@ -841,38 +872,52 @@ export default function GameScreen({
           playSound("clear", newCombo, totalLines);
         }
 
+        // PERFECT CLEAR
         if (isBoardEmpty) {
           setShowPerfectClear(true);
           playSound("perfectclear");
           setTimeout(() => setShowPerfectClear(false), 2500);
 
           setBgIndex((prev) => (prev + 1) % BACKGROUND_GRADIENTS.length);
-
           setClearedCount((prev) => prev + 1);
-          const nextDiff = gameDifficulty + 1;
+
+          nextDiff = gameDifficulty + 1;
           setGameDifficulty(nextDiff);
           setLevelBlocksPlaced(0);
-
           setCombo(0);
 
           runBoardFillSweepEffect(() => {
+            let finalGrid = createEmptyGrid();
+            
+            if (nextDiff >= 5) {
+              finalGrid = applyLevelObstacles(finalGrid, nextDiff);
+            }
+
             const remainingShapes = shapes.map((s, index) =>
               index === shapeIndex ? null : s
             );
             const isSetCompleted = remainingShapes.every((s) => s === null);
-            if (isSetCompleted) {
-              setCombo(0);
-            }
             const newShapes = isSetCompleted
-              ? getValidShapes(nextDiff, createEmptyGrid(), 0)
+              ? getValidShapes(nextDiff, finalGrid, 0)
               : remainingShapes;
+            
             setShapes(newShapes);
-            checkGameOver(createEmptyGrid(), newShapes, newTotalScore);
+            checkGameOver(finalGrid, newShapes, newTotalScore);
           });
           return;
         }
       } else {
         playSound("place");
+      }
+
+      if (isLevelUp) {
+        nextDiff = gameDifficulty + 1;
+        setGameDifficulty(nextDiff);
+        setBgIndex((prev) => (prev + 1) % BACKGROUND_GRADIENTS.length); // Seviye atlayınca da arkaplan değişir
+        setLevelBlocksPlaced(0);
+        
+        setComboText(`SEVİYE ${nextDiff}!`);
+        setTimeout(() => setComboText(null), 2500);
       }
 
       const remainingShapes = shapes.map((s, index) =>
@@ -884,26 +929,47 @@ export default function GameScreen({
         setCombo(0);
       }
 
-      const newShapes = isSetCompleted
-        ? getValidShapes(gameDifficulty, clearedGrid, newLevelBlocksPlaced)
-        : remainingShapes;
-      setShapes(newShapes);
-
       if (clearedRows.length > 0 || clearedCols.length > 0) {
         setIsClearing(true);
         setClearingRows(clearedRows);
         setClearingCols(clearedCols);
         setGrid(newGrid);
+        
+        // Pürüzsüz akıcılık için animasyon süresini 180ms'e düşürdük
         setTimeout(() => {
-          setGrid(clearedGrid);
+          let finalGrid = clearedGrid;
+          
+          if (isLevelUp && nextDiff >= 5) {
+            finalGrid = applyLevelObstacles(clearedGrid, nextDiff);
+          }
+
+          setGrid(finalGrid);
           setClearingRows([]);
           setClearingCols([]);
           setIsClearing(false);
-          checkGameOver(clearedGrid, newShapes, newTotalScore);
-        }, 250);
+          
+          const newShapes = isSetCompleted || isLevelUp
+            ? getValidShapes(nextDiff, finalGrid, newLevelBlocksPlaced)
+            : remainingShapes;
+
+          setShapes(newShapes);
+          checkGameOver(finalGrid, newShapes, newTotalScore);
+        }, 180);
       } else {
-        setGrid(newGrid);
-        checkGameOver(newGrid, newShapes, newTotalScore);
+        let finalGrid = newGrid;
+        
+        if (isLevelUp && nextDiff >= 5) {
+          finalGrid = applyLevelObstacles(newGrid, nextDiff);
+        }
+
+        setGrid(finalGrid);
+
+        const newShapes = isSetCompleted || isLevelUp
+          ? getValidShapes(nextDiff, finalGrid, newLevelBlocksPlaced)
+          : remainingShapes;
+
+        setShapes(newShapes);
+        checkGameOver(finalGrid, newShapes, newTotalScore);
       }
     },
     [
@@ -916,6 +982,7 @@ export default function GameScreen({
       levelBlocksPlaced,
       totalCellSize,
       runBoardFillSweepEffect,
+      totalLinesCleared
     ]
   );
 
@@ -976,7 +1043,8 @@ export default function GameScreen({
 
       if (isTouch) {
         shapeLeft = pointerX - shapePixelW / 2;
-        shapeTop = pointerY - 70 - shapePixelH / 2;
+        // Dokunmatik hassasiyeti için ofset arttırıldı ki blok parmağın üzerinde tam görünsün
+        shapeTop = pointerY - 90 - shapePixelH;
       } else {
         shapeLeft = pointerX - shapePixelW / 2;
         shapeTop = pointerY - shapePixelH / 2;
@@ -1111,6 +1179,7 @@ export default function GameScreen({
       setGameDifficulty(startDiff);
       setClearedCount(0);
       setLevelBlocksPlaced(0);
+      setTotalLinesCleared(0); 
       setShapes(getValidShapes(startDiff, emptyGrid, 0));
       setScore(0);
       setDisplayScore(0);
@@ -1172,7 +1241,7 @@ export default function GameScreen({
                 transform: `translate3d(${((hoverCol + c) * totalCellSize)}px, ${((hoverRow + r) * totalCellSize)}px, 0)`,
                 width: cellSize,
                 height: cellSize,
-                background: drag.shape.color,
+                background: THEME_COLORS[bgIndex % THEME_COLORS.length],
                 opacity: 0.5,
                 boxSizing: "border-box",
                 willChange: "transform",
@@ -1232,7 +1301,7 @@ export default function GameScreen({
     );
   };
 
-  const getDragGhostStyle = (): React.CSSProperties => {
+  const getDragGhostContainerStyle = (): React.CSSProperties => {
     if (!drag) return { display: "none" };
 
     const shapePixelW = drag.shape.width * totalCellSize - gap;
@@ -1243,7 +1312,7 @@ export default function GameScreen({
 
     if (drag.isTouch) {
       left = drag.pointerX - shapePixelW / 2;
-      top = drag.pointerY - 70 - shapePixelH / 2;
+      top = drag.pointerY - 90 - shapePixelH;
     } else {
       left = drag.pointerX - shapePixelW / 2;
       top = drag.pointerY - shapePixelH / 2;
@@ -1253,14 +1322,10 @@ export default function GameScreen({
       position: "fixed",
       left: 0,
       top: 0,
-      transform: `translate3d(${left}px, ${top}px, 0) scale(1.05)`,
-      display: "grid",
-      gridTemplateColumns: `repeat(${drag.shape.width}, ${cellSize}px)`,
-      gridTemplateRows: `repeat(${drag.shape.height}, ${cellSize}px)`,
-      gap,
+      transform: `translate3d(${left}px, ${top}px, 0)`,
       pointerEvents: "none",
       zIndex: 1000,
-      opacity: 0.92,
+      opacity: 0.95,
       willChange: "transform",
     };
   };
@@ -1292,15 +1357,16 @@ export default function GameScreen({
       }}
     >
       <style>{`
+        /* Yay (spring) ve yumuşak doku için optimize edildi */
         .block-3d {
-          border-radius: 2px;
+          border-radius: 4px;
           box-sizing: border-box;
-          border-top: 2.5px solid rgba(255, 255, 255, 0.65);
-          border-left: 2.5px solid rgba(255, 255, 255, 0.4);
-          border-right: 2.5px solid rgba(0, 0, 0, 0.4);
-          border-bottom: 2.5px solid rgba(0, 0, 0, 0.6);
-          box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15), 0 3px 6px rgba(0, 0, 0, 0.35);
-          will-change: transform;
+          border-top: 2.5px solid rgba(255, 255, 255, 0.5);
+          border-left: 2.5px solid rgba(255, 255, 255, 0.3);
+          border-right: 2.5px solid rgba(0, 0, 0, 0.2);
+          border-bottom: 2.5px solid rgba(0, 0, 0, 0.4);
+          box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1), 0 4px 8px rgba(0, 0, 0, 0.3);
+          will-change: transform, opacity;
           transform: translateZ(0);
         }
         @keyframes bgMatchingGlowPulse {
@@ -1543,14 +1609,15 @@ export default function GameScreen({
                   transform: `translate3d(${(c * totalCellSize)}px, ${(r * totalCellSize)}px, 0)`,
                   width: cellSize,
                   height: cellSize,
+                  // Ana renk temasına bağlandı (Hem masa hem de bloklar değişir)
                   background: cell
-                    ? COLORS[(cell - 1) % COLORS.length]
+                    ? THEME_COLORS[bgIndex % THEME_COLORS.length]
                     : "rgba(255,255,255,0.05)",
                   borderRadius: cell ? 2 : 4,
                   boxSizing: "border-box",
-                  transition: isClearingCell ? "none" : "background 0.15s ease",
+                  transition: isClearingCell ? "none" : "background 0.5s ease",
                   animation: isClearingCell
-                    ? "lineClearGlow 0.25s ease-out forwards"
+                    ? "lineClearGlow 0.2s ease-out forwards"
                     : "none",
                   zIndex: isClearingCell ? 20 : 1,
                   willChange: isClearingCell ? "transform, opacity" : "transform",
@@ -1574,7 +1641,7 @@ export default function GameScreen({
               background: "linear-gradient(90deg, transparent, #ff007f, #ffffff, #00f0ff, transparent)",
               pointerEvents: "none",
               zIndex: 30,
-              animation: "lineClearFlash 0.25s ease-out forwards",
+              animation: "lineClearFlash 0.2s ease-out forwards",
               willChange: "transform, opacity",
             }}
           />
@@ -1592,7 +1659,7 @@ export default function GameScreen({
               background: "linear-gradient(180deg, transparent, #ff007f, #ffffff, #00f0ff, transparent)",
               pointerEvents: "none",
               zIndex: 30,
-              animation: "lineClearFlash 0.25s ease-out forwards",
+              animation: "lineClearFlash 0.2s ease-out forwards",
               willChange: "transform, opacity",
             }}
           />
@@ -1766,6 +1833,9 @@ export default function GameScreen({
               alignItems: "center",
               justifyContent: "center",
               cursor: shape ? "grab" : "default",
+              // Tıklandığında spring hissiyatı için küçülme ve solma animasyonu eklendi
+              transform: drag?.shapeIndex === index ? "scale(0.8)" : "scale(1)",
+              transition: "transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.2s ease",
               opacity: drag?.shapeIndex === index ? 0.3 : 1,
               touchAction: "none",
             }}
@@ -1790,7 +1860,7 @@ export default function GameScreen({
                       style={{
                         width: 20,
                         height: 20,
-                        background: cell ? shape.color : "transparent",
+                        background: cell ? THEME_COLORS[bgIndex % THEME_COLORS.length] : "transparent",
                       }}
                     />
                   ))
@@ -1801,22 +1871,35 @@ export default function GameScreen({
         ))}
       </div>
 
-      {/* Sürüklenen Şekil */}
+      {/* Sürüklenen Şekil Container */}
       {drag && (
-        <div style={getDragGhostStyle()}>
-          {drag.shape.cells.map((row, r) =>
-            row.map((cell, c) => (
-              <div
-                key={`${r}-${c}`}
-                className={cell ? "block-3d" : ""}
-                style={{
-                  width: cellSize,
-                  height: cellSize,
-                  background: cell ? drag.shape.color : "transparent",
-                }}
-              />
-            ))
-          )}
+        <div style={getDragGhostContainerStyle()}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: `repeat(${drag.shape.width}, ${cellSize}px)`,
+              gridTemplateRows: `repeat(${drag.shape.height}, ${cellSize}px)`,
+              gap,
+              // Block Blast tarzı ele alınca hafif büyüme / spring efekti
+              transform: "scale(1.15)",
+              transformOrigin: drag.isTouch ? "bottom center" : "center",
+              transition: "transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1)",
+            }}
+          >
+            {drag.shape.cells.map((row, r) =>
+              row.map((cell, c) => (
+                <div
+                  key={`${r}-${c}`}
+                  className={cell ? "block-3d" : ""}
+                  style={{
+                    width: cellSize,
+                    height: cellSize,
+                    background: cell ? THEME_COLORS[bgIndex % THEME_COLORS.length] : "transparent",
+                  }}
+                />
+              ))
+            )}
+          </div>
         </div>
       )}
 
