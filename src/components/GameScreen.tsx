@@ -71,7 +71,6 @@ const BACKGROUND_GRADIENTS = [
   "linear-gradient(180deg, #4b6cb7 0%, #182848 100%)",
 ];
 
-// Arka plan gradyanlarına tam uyumlu olacak şekilde belirlenmiş canlı blok renkleri
 const THEME_COLORS = [
   "#38bdf8", // Mavi
   "#2dd4bf", // Turkuaz
@@ -84,6 +83,65 @@ const THEME_COLORS = [
 
 const STORAGE_KEY = "kutu_tetris_saved_state";
 const PRAISE_WORDS = ["Woov!", "Süper!", "Harika!", "İlginç!", "Muhteşem!", "Vov!"];
+
+// Her Seviye İçin Farklı Blok Bütünlüğü / Hazır Engel Tasarımları (99: Sabit/Önceden Dolu Blok, 0: Boş)
+const LEVEL_LAYOUTS: Record<number, number[][]> = {
+  1: createEmptyGrid(),
+  2: [
+    [99,99,0,0,0,0,99,99],
+    [99,0,0,0,0,0,0,99],
+    [0,0,0,0,0,0,0,0],
+    [0,0,0,99,99,0,0,0],
+    [0,0,0,99,99,0,0,0],
+    [0,0,0,0,0,0,0,0],
+    [99,0,0,0,0,0,0,99],
+    [99,99,0,0,0,0,99,99]
+  ],
+  3: [
+    [99,0,0,0,0,0,0,99],
+    [0,99,0,0,0,0,99,0],
+    [0,0,99,0,0,99,0,0],
+    [0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0],
+    [0,0,99,0,0,99,0,0],
+    [0,99,0,0,0,0,99,0],
+    [99,0,0,0,0,0,0,99]
+  ],
+  4: [
+    [0,0,0,99,99,0,0,0],
+    [0,0,0,99,99,0,0,0],
+    [0,0,0,0,0,0,0,0],
+    [99,99,0,0,0,0,99,99],
+    [99,99,0,0,0,0,99,99],
+    [0,0,0,0,0,0,0,0],
+    [0,0,0,99,99,0,0,0],
+    [0,0,0,99,99,0,0,0]
+  ],
+  5: [
+    [99,0,99,0,0,99,0,99],
+    [0,0,0,0,0,0,0,0],
+    [99,0,0,0,0,0,0,99],
+    [0,0,0,99,99,0,0,0],
+    [0,0,0,99,99,0,0,0],
+    [99,0,0,0,0,0,0,99],
+    [0,0,0,0,0,0,0,0],
+    [99,0,99,0,0,99,0,99]
+  ]
+};
+
+const getLevelLayout = (level: number): number[][] => {
+  if (LEVEL_LAYOUTS[level]) {
+    return LEVEL_LAYOUTS[level].map(row => [...row]);
+  }
+  // 5. seviyeden sonraki seviyeler için dinamik engel haritası
+  const layout = createEmptyGrid();
+  for (let r = 0; r < GRID_SIZE; r++) {
+    for (let c = 0; c < GRID_SIZE; c++) {
+      if (Math.random() < 0.18) layout[r][c] = 99;
+    }
+  }
+  return layout;
+};
 
 const sanitizeShape = (shape: Shape): Shape => {
   if (!shape || !shape.cells) return shape;
@@ -113,9 +171,6 @@ const evaluateShapeForGrid = (shape: Shape, g: number[][]): number => {
   for (let r = 0; r < GRID_SIZE; r++) {
     for (let c = 0; c < GRID_SIZE; c++) {
       if (canPlaceShape(g, shape, r, c)) {
-        const testGrid = placeShape(g, shape, r, c);
-        const { linesCleared } = clearLines(testGrid);
-
         let fillBonus = 0;
         for (let sr = 0; sr < shape.height; sr++) {
           for (let sc = 0; sc < shape.width; sc++) {
@@ -132,14 +187,8 @@ const evaluateShapeForGrid = (shape: Shape, g: number[][]): number => {
             }
           }
         }
-
-        if (linesCleared > 0) {
-          const score = linesCleared * 1000000 + fillBonus * 100;
-          if (score > maxScore) maxScore = score;
-        } else {
-          const score = (9 - cellCount) * 2000 + fillBonus * 10;
-          if (score > maxScore) maxScore = score;
-        }
+        const score = (9 - cellCount) * 2000 + fillBonus * 10;
+        if (score > maxScore) maxScore = score;
       }
     }
   }
@@ -160,7 +209,7 @@ const getValidShapes = (
   if (!currentGrid) {
     const valid: Shape[] = [];
     let attempts = 0;
-    while (valid.length < 3 && attempts < 50) {
+    while (valid.length < 3 && attempts < 30) {
       attempts++;
       const shape = getRandomShape(level);
       if (shape && !valid.some(v => JSON.stringify(v.cells) === JSON.stringify(shape.cells))) {
@@ -173,7 +222,7 @@ const getValidShapes = (
   const candidates: { shape: Shape; score: number; cellCount: number }[] = [];
   let attempts = 0;
 
-  while (candidates.length < 35 && attempts < 120) {
+  while (candidates.length < 15 && attempts < 35) {
     attempts++;
     const shape = getRandomShape(level);
     if (shape && canPlaceAnywhere(currentGrid, shape)) {
@@ -212,7 +261,7 @@ const getValidShapes = (
     }
 
     if (validForSim.length > 0) {
-      const topPoolSize = Math.min(validForSim.length, 8);
+      const topPoolSize = Math.min(validForSim.length, 5);
       const chosen = validForSim[Math.floor(Math.random() * topPoolSize)].shape;
       selected.push(chosen);
 
@@ -236,30 +285,6 @@ const getValidShapes = (
   }
 
   return selected.sort(() => Math.random() - 0.5);
-};
-
-const applyLevelObstacles = (currentGrid: number[][], level: number) => {
-  const newGrid = currentGrid.map((row) => [...row]);
-  if (level < 5) return newGrid;
-
-  const patterns = [
-    [[3, 3], [3, 4], [4, 3], [4, 4]], 
-    [[1, 1], [1, 6], [6, 1], [6, 6]], 
-    [[2, 4], [3, 4], [4, 4], [5, 4]], 
-    [[4, 2], [4, 3], [4, 4], [4, 5]], 
-    [[2, 2], [3, 3], [4, 4], [5, 5]], 
-  ];
-
-  const patternIndex = (level - 5) % patterns.length;
-  const selectedPattern = patterns[patternIndex];
-
-  selectedPattern.forEach(([r, c]) => {
-    if (newGrid[r] && newGrid[r][c] === 0) {
-      newGrid[r][c] = Math.floor(Math.random() * 7) + 1;
-    }
-  });
-
-  return newGrid;
 };
 
 export default function GameScreen({
@@ -289,6 +314,13 @@ export default function GameScreen({
   const [clearedCount, setClearedCount] = useState(savedState?.clearedCount ?? 0);
   const [levelBlocksPlaced, setLevelBlocksPlaced] = useState(savedState?.levelBlocksPlaced ?? 0);
   const [totalLinesCleared, setTotalLinesCleared] = useState(savedState?.totalLinesCleared ?? 0);
+
+  // Mevcut Seviyedeki Puan ve Temizlenen Satır/Sütun Sayaçları
+  const [levelScore, setLevelScore] = useState(savedState?.levelScore ?? 0);
+  const [levelLinesCleared, setLevelLinesCleared] = useState(savedState?.levelLinesCleared ?? 0);
+
+  // Seviye Geçiş Ekranı (Overlay) Durumu
+  const [isLevelTransitioning, setIsLevelTransitioning] = useState(false);
 
   const [levelUpText] = useState<string | null>(null);
   const [isSweepActive, setIsSweepActive] = useState(false);
@@ -366,7 +398,7 @@ export default function GameScreen({
     }
   }, [soundEnabled]);
 
-  const playSynthSound = useCallback((type: "grab" | "place" | "clear_1" | "clear_2" | "clear_3" | "clear_4" | "clear_5" | "combo_lively" | "warning" | "lively" | "start_fanfare", level: number = 0) => {
+  const playSynthSound = useCallback((type: "grab" | "place" | "clear_1" | "clear_2" | "clear_3" | "clear_4" | "clear_5" | "combo_lively" | "warning" | "lively" | "start_fanfare" | "levelup_fanfare", level: number = 0) => {
     if (!soundEnabled) return;
     try {
       if (!audioCtxRef.current) {
@@ -380,7 +412,7 @@ export default function GameScreen({
 
       const now = ctx.currentTime;
 
-      const playTone = (freq: number, startTime: number, duration: number, type: OscillatorType = "sine", vol: number = 0.3, pitchSlide?: number) => {
+      const playTone = (freq: number, startTime: number, duration: number, type: OscillatorType = "sine", vol: number = 0.2, pitchSlide?: number) => {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
         
@@ -401,55 +433,48 @@ export default function GameScreen({
         osc.stop(startTime + duration);
       };
 
-      if (type === "start_fanfare") {
-        const notes = [523.25, 659.25, 783.99, 987.77, 1046.50, 1318.51];
+      if (type === "levelup_fanfare") {
+        const notes = [261.63, 329.63, 392.00, 523.25, 659.25, 783.99];
         notes.forEach((freq, idx) => {
-          playTone(freq, now + idx * 0.05, 0.35, "sine", 0.25);
-          playTone(freq * 0.5, now + idx * 0.05, 0.35, "triangle", 0.15);
+          playTone(freq, now + idx * 0.08, 0.3, "triangle", 0.25);
+        });
+      } else if (type === "start_fanfare") {
+        const notes = [523.25, 659.25, 783.99, 1046.50];
+        notes.forEach((freq, idx) => {
+          playTone(freq, now + idx * 0.05, 0.25, "sine", 0.2);
         });
       } else if (type === "grab") {
-        playTone(420, now, 0.08, "sine", 0.35, 880);
-        playTone(840, now + 0.01, 0.06, "triangle", 0.15);
+        playTone(420, now, 0.06, "sine", 0.25, 880);
       } else if (type === "place") {
-        playTone(750, now, 0.06, "sine", 0.4, 220);
-        playTone(1100, now, 0.03, "triangle", 0.2, 350);
+        playTone(750, now, 0.05, "sine", 0.25, 220);
       } else if (type === "warning") {
         const notes = [440, 554.37];
         notes.forEach((freq, idx) => {
-          playTone(freq, now + idx * 0.12, 0.2, "sine", 0.2);
+          playTone(freq, now + idx * 0.12, 0.15, "sine", 0.15);
         });
       } else if (type === "clear_1") {
-        playTone(1318.51, now, 0.22, "sine", 0.3);
-        playTone(1760.00, now + 0.06, 0.28, "sine", 0.35);
+        playTone(1318.51, now, 0.18, "sine", 0.25);
+        playTone(1760.00, now + 0.05, 0.2, "sine", 0.25);
       } else if (type === "clear_2") {
         const freqs = [1046.50, 1318.51, 1567.98, 2093.00];
         freqs.forEach((freq, idx) => {
-          playTone(freq, now + idx * 0.05, 0.25, "sine", 0.3);
-          playTone(freq * 0.5, now + idx * 0.05, 0.25, "triangle", 0.15);
+          playTone(freq, now + idx * 0.04, 0.2, "sine", 0.2);
         });
       } else if (type === "clear_3") {
-        const freqs = [1046.50, 1318.51, 1567.98, 1975.53, 2093.00, 2637.02];
+        const freqs = [1046.50, 1318.51, 1567.98, 2093.00];
         freqs.forEach((freq, idx) => {
-          playTone(freq, now + idx * 0.04, 0.3, "sine", 0.28);
+          playTone(freq, now + idx * 0.04, 0.2, "sine", 0.22);
         });
-      } else if (type === "clear_4") {
-        const freqs = [523.25, 659.25, 783.99, 987.77, 1174.66, 1318.51, 1567.98, 2093.00];
+      } else if (type === "clear_4" || type === "clear_5") {
+        const freqs = [523.25, 659.25, 783.99, 1046.50, 1318.51, 1567.98];
         freqs.forEach((freq, idx) => {
-          playTone(freq, now + idx * 0.035, 0.35, "sine", 0.25);
-          playTone(freq * 1.005, now + idx * 0.035, 0.35, "triangle", 0.15);
-        });
-      } else if (type === "clear_5") {
-        const freqs = [523.25, 587.33, 659.25, 783.99, 880.00, 1046.50, 1174.66, 1318.51, 1567.98, 1760.00, 2093.00];
-        freqs.forEach((freq, idx) => {
-          playTone(freq, now + idx * 0.03, 0.4, "sine", 0.25);
-          playTone(freq * 0.5, now + idx * 0.03, 0.4, "triangle", 0.12);
+          playTone(freq, now + idx * 0.035, 0.25, "sine", 0.2);
         });
       } else if (type === "combo_lively") {
         const baseFreq = 523.25 + Math.min(level, 10) * 80;
-        playTone(baseFreq, now, 0.18, "sine", 0.35, baseFreq * 1.35);
-        playTone(baseFreq * 1.5, now + 0.04, 0.22, "triangle", 0.2, baseFreq * 1.8);
+        playTone(baseFreq, now, 0.15, "sine", 0.25, baseFreq * 1.35);
       } else if (type === "lively") {
-        playTone(600, now, 0.15, "sine", 0.3, 1400);
+        playTone(600, now, 0.12, "sine", 0.2, 1400);
       }
     } catch {
       /* Audio Synth error */
@@ -474,7 +499,10 @@ export default function GameScreen({
     ) => {
       if (!soundEnabled) return;
 
-      if (type === "perfectclear") {
+      if (type === "levelup") {
+        playAudioFile("yeni_victory.mp3");
+        playSynthSound("levelup_fanfare");
+      } else if (type === "perfectclear") {
         playAudioFile("yeni_victory.mp3");
         playSynthSound("clear_5");
       } else if (type === "start") {
@@ -493,7 +521,6 @@ export default function GameScreen({
       } else if (type === "warning") {
         playSynthSound("warning");
       } else if (type === "clear" || type === "multi" || type === "combo") {
-        
         if (comboLevel >= 1) {
           playSynthSound("combo_lively", comboLevel);
         }
@@ -527,11 +554,11 @@ export default function GameScreen({
     playSoundRef.current = playSound;
   }, [playSound]);
 
-  const [grid, setGrid] = useState<number[][]>(() => createEmptyGrid());
+  const [grid, setGrid] = useState<number[][]>(() => getLevelLayout(savedState?.gameDifficulty ?? 1));
   const [shapes, setShapes] = useState<(Shape | null)[]>(() =>
     getValidShapes(
       savedState?.gameDifficulty ?? 1,
-      createEmptyGrid(),
+      getLevelLayout(savedState?.gameDifficulty ?? 1),
       savedState?.levelBlocksPlaced ?? 0
     )
   );
@@ -601,13 +628,15 @@ export default function GameScreen({
         bgIndex,
         coinsEarned,
         levelBlocksPlaced,
-        totalLinesCleared, 
+        totalLinesCleared,
+        levelScore,
+        levelLinesCleared,
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(stateToSave));
     } catch {
       /* localStorage write error */
     }
-  }, [score, currentBestScore, gameDifficulty, clearedCount, bgIndex, coinsEarned, levelBlocksPlaced, totalLinesCleared, gameOver]);
+  }, [score, currentBestScore, gameDifficulty, clearedCount, bgIndex, coinsEarned, levelBlocksPlaced, totalLinesCleared, levelScore, levelLinesCleared, gameOver]);
 
   useEffect(() => {
     gridStateRef.current = grid;
@@ -651,7 +680,11 @@ export default function GameScreen({
 
   useEffect(() => {
     let filled = 0;
-    for (const row of grid) for (const cell of row) if (cell) filled++;
+    for (let r = 0; r < GRID_SIZE; r++) {
+      for (let c = 0; c < GRID_SIZE; c++) {
+        if (grid[r][c]) filled++;
+      }
+    }
     const ratio = filled / (GRID_SIZE * GRID_SIZE);
 
     if (!isFiftyPercentFull && ratio >= 0.50) {
@@ -703,7 +736,7 @@ export default function GameScreen({
 
         setTimeout(() => {
           setGameOverModalShow(true);
-        }, 1500);
+        }, 1200);
       }
     },
     [playSound, onGameOver, coinsEarned]
@@ -721,7 +754,7 @@ export default function GameScreen({
           }
           return next;
         });
-      }, (GRID_SIZE - 1 - r) * 60);
+      }, (GRID_SIZE - 1 - r) * 45);
     }
 
     setTimeout(() => {
@@ -734,14 +767,14 @@ export default function GameScreen({
             }
             return next;
           });
-        }, (GRID_SIZE - 1 - r) * 60);
+        }, (GRID_SIZE - 1 - r) * 45);
       }
-    }, GRID_SIZE * 60 + 200);
+    }, GRID_SIZE * 45 + 150);
 
     setTimeout(() => {
       setIsSweepActive(false);
       onComplete();
-    }, GRID_SIZE * 120 + 300);
+    }, GRID_SIZE * 90 + 200);
   }, []);
 
   const runOpeningFillSweepEffect = useCallback((onComplete: () => void) => {
@@ -756,7 +789,7 @@ export default function GameScreen({
           }
           return next;
         });
-      }, r * 50);
+      }, r * 40);
     }
 
     setTimeout(() => {
@@ -769,15 +802,42 @@ export default function GameScreen({
             }
             return next;
           });
-        }, r * 50);
+        }, r * 40);
       }
-    }, GRID_SIZE * 50 + 150);
+    }, GRID_SIZE * 40 + 100);
 
     setTimeout(() => {
       setIsSweepActive(false);
       onComplete();
-    }, GRID_SIZE * 100 + 250);
+    }, GRID_SIZE * 80 + 180);
   }, []);
+
+  // Seviye Geçişi Tetikleme Fonksiyonu
+  const triggerLevelTransition = useCallback(
+    (nextLevel: number, newTotalScore: number) => {
+      setIsLevelTransitioning(true);
+      playSound("levelup");
+
+      setTimeout(() => {
+        setGameDifficulty(nextLevel);
+        setBgIndex((prev) => (prev + 1) % BACKGROUND_GRADIENTS.length);
+        setLevelBlocksPlaced(0);
+        setLevelScore(0);
+        setLevelLinesCleared(0);
+
+        const newLevelGrid = getLevelLayout(nextLevel);
+        setGrid(newLevelGrid);
+        gridStateRef.current = newLevelGrid;
+
+        const newShapes = getValidShapes(nextLevel, newLevelGrid, 0);
+        setShapes(newShapes);
+
+        setIsLevelTransitioning(false);
+        checkGameOver(newLevelGrid, newShapes, newTotalScore);
+      }, 2500);
+    },
+    [playSound, checkGameOver]
+  );
 
   const handlePlacement = useCallback(
     (shapeIndex: number, shape: Shape, row: number, col: number) => {
@@ -793,7 +853,7 @@ export default function GameScreen({
 
       const newGrid = placeShape(currentGrid, shape, row, col);
       setBurst({ row, col, color: shape.color, intense: false });
-      window.setTimeout(() => setBurst(null), 520);
+      window.setTimeout(() => setBurst(null), 300);
 
       const newLevelBlocksPlaced = levelBlocksPlaced + 1;
       setLevelBlocksPlaced(newLevelBlocksPlaced);
@@ -824,17 +884,20 @@ export default function GameScreen({
       );
 
       const newTotalScore = score + points;
+      const newLevelScore = levelScore + points;
+      const newLevelLines = levelLinesCleared + totalLines;
 
       setScore(newTotalScore);
+      setLevelScore(newLevelScore);
+      setLevelLinesCleared(newLevelLines);
       setCoinsEarned((c) => c + coins);
       setCombo(newCombo);
 
       const newTotalLinesCleared = totalLinesCleared + totalLines;
       setTotalLinesCleared(newTotalLinesCleared);
-      
-      let nextDiff = gameDifficulty;
-      const linesNeededForNextLevel = gameDifficulty * 10;
-      let isLevelUp = newTotalLinesCleared >= linesNeededForNextLevel;
+
+      // Sadece 2500 puan olunca seviye geçilsin
+      const isLevelUp = newLevelScore >= 2500;
 
       if (totalLines > 0) {
         const isBoardEmpty = clearedGrid.every((r) => r.every((cell) => cell === 0));
@@ -851,15 +914,15 @@ export default function GameScreen({
         ]);
         setTimeout(() => {
           setFloatingScores((prev) => prev.filter((f) => f.id !== newFloatingId));
-        }, 900);
+        }, 750);
 
         const praiseWord = PRAISE_WORDS[Math.floor(Math.random() * PRAISE_WORDS.length)];
         if (newCombo > 1) {
           setComboText(`COMBO ${newCombo}x - ${praiseWord}`);
-          setTimeout(() => setComboText(null), 1200);
+          setTimeout(() => setComboText(null), 1000);
         } else {
           setComboText(praiseWord);
-          setTimeout(() => setComboText(null), 1000);
+          setTimeout(() => setComboText(null), 850);
         }
 
         if (totalLines >= 3) {
@@ -876,23 +939,21 @@ export default function GameScreen({
         if (isBoardEmpty) {
           setShowPerfectClear(true);
           playSound("perfectclear");
-          setTimeout(() => setShowPerfectClear(false), 2500);
+          setTimeout(() => setShowPerfectClear(false), 2000);
 
           setBgIndex((prev) => (prev + 1) % BACKGROUND_GRADIENTS.length);
           setClearedCount((prev) => prev + 1);
 
-          nextDiff = gameDifficulty + 1;
+          const nextDiff = gameDifficulty + 1;
           setGameDifficulty(nextDiff);
           setLevelBlocksPlaced(0);
+          setLevelScore(0);
+          setLevelLinesCleared(0);
           setCombo(0);
 
           runBoardFillSweepEffect(() => {
-            let finalGrid = createEmptyGrid();
+            const finalGrid = getLevelLayout(nextDiff);
             
-            if (nextDiff >= 5) {
-              finalGrid = applyLevelObstacles(finalGrid, nextDiff);
-            }
-
             const remainingShapes = shapes.map((s, index) =>
               index === shapeIndex ? null : s
             );
@@ -901,6 +962,7 @@ export default function GameScreen({
               ? getValidShapes(nextDiff, finalGrid, 0)
               : remainingShapes;
             
+            setGrid(finalGrid);
             setShapes(newShapes);
             checkGameOver(finalGrid, newShapes, newTotalScore);
           });
@@ -908,16 +970,6 @@ export default function GameScreen({
         }
       } else {
         playSound("place");
-      }
-
-      if (isLevelUp) {
-        nextDiff = gameDifficulty + 1;
-        setGameDifficulty(nextDiff);
-        setBgIndex((prev) => (prev + 1) % BACKGROUND_GRADIENTS.length); // Seviye atlayınca da arkaplan değişir
-        setLevelBlocksPlaced(0);
-        
-        setComboText(`SEVİYE ${nextDiff}!`);
-        setTimeout(() => setComboText(null), 2500);
       }
 
       const remainingShapes = shapes.map((s, index) =>
@@ -934,42 +986,39 @@ export default function GameScreen({
         setClearingRows(clearedRows);
         setClearingCols(clearedCols);
         setGrid(newGrid);
-        
-        // Pürüzsüz akıcılık için animasyon süresini 180ms'e düşürdük
-        setTimeout(() => {
-          let finalGrid = clearedGrid;
-          
-          if (isLevelUp && nextDiff >= 5) {
-            finalGrid = applyLevelObstacles(clearedGrid, nextDiff);
-          }
 
+        setTimeout(() => {
+          const finalGrid = clearedGrid;
           setGrid(finalGrid);
           setClearingRows([]);
           setClearingCols([]);
           setIsClearing(false);
-          
-          const newShapes = isSetCompleted || isLevelUp
-            ? getValidShapes(nextDiff, finalGrid, newLevelBlocksPlaced)
+
+          if (isLevelUp) {
+            triggerLevelTransition(gameDifficulty + 1, newTotalScore);
+          } else {
+            const newShapes = isSetCompleted
+              ? getValidShapes(gameDifficulty, finalGrid, newLevelBlocksPlaced)
+              : remainingShapes;
+
+            setShapes(newShapes);
+            checkGameOver(finalGrid, newShapes, newTotalScore);
+          }
+        }, 150);
+      } else {
+        const finalGrid = newGrid;
+        setGrid(finalGrid);
+
+        if (isLevelUp) {
+          triggerLevelTransition(gameDifficulty + 1, newTotalScore);
+        } else {
+          const newShapes = isSetCompleted
+            ? getValidShapes(gameDifficulty, finalGrid, newLevelBlocksPlaced)
             : remainingShapes;
 
           setShapes(newShapes);
           checkGameOver(finalGrid, newShapes, newTotalScore);
-        }, 180);
-      } else {
-        let finalGrid = newGrid;
-        
-        if (isLevelUp && nextDiff >= 5) {
-          finalGrid = applyLevelObstacles(newGrid, nextDiff);
         }
-
-        setGrid(finalGrid);
-
-        const newShapes = isSetCompleted || isLevelUp
-          ? getValidShapes(nextDiff, finalGrid, newLevelBlocksPlaced)
-          : remainingShapes;
-
-        setShapes(newShapes);
-        checkGameOver(finalGrid, newShapes, newTotalScore);
       }
     },
     [
@@ -980,9 +1029,12 @@ export default function GameScreen({
       score,
       gameDifficulty,
       levelBlocksPlaced,
+      levelScore,
+      levelLinesCleared,
       totalCellSize,
       runBoardFillSweepEffect,
-      totalLinesCleared
+      totalLinesCleared,
+      triggerLevelTransition
     ]
   );
 
@@ -997,7 +1049,7 @@ export default function GameScreen({
         targetRow < 0 ||
         targetCol < 0 ||
         targetRow >= GRID_SIZE ||
-        targetRow >= GRID_SIZE
+        targetCol >= GRID_SIZE
       ) {
         return null;
       }
@@ -1043,7 +1095,6 @@ export default function GameScreen({
 
       if (isTouch) {
         shapeLeft = pointerX - shapePixelW / 2;
-        // Dokunmatik hassasiyeti için ofset arttırıldı ki blok parmağın üzerinde tam görünsün
         shapeTop = pointerY - 90 - shapePixelH;
       } else {
         shapeLeft = pointerX - shapePixelW / 2;
@@ -1066,7 +1117,7 @@ export default function GameScreen({
     shapeIndex: number,
     shape: Shape
   ) => {
-    if (isClearing || isSweepActive || gameOver || shapes[shapeIndex] === null) return;
+    if (isClearing || isSweepActive || isLevelTransitioning || gameOver || shapes[shapeIndex] === null) return;
     e.preventDefault();
 
     if (audioCtxRef.current && audioCtxRef.current.state === "suspended") {
@@ -1172,15 +1223,16 @@ export default function GameScreen({
     setGameOver(false);
 
     runOpeningFillSweepEffect(() => {
-      const emptyGrid = createEmptyGrid();
-      setGrid(emptyGrid);
-      gridStateRef.current = emptyGrid;
-      const startDiff = gameDifficulty;
-      setGameDifficulty(startDiff);
+      const initialGrid = getLevelLayout(1);
+      setGrid(initialGrid);
+      gridStateRef.current = initialGrid;
+      setGameDifficulty(1);
       setClearedCount(0);
       setLevelBlocksPlaced(0);
-      setTotalLinesCleared(0); 
-      setShapes(getValidShapes(startDiff, emptyGrid, 0));
+      setTotalLinesCleared(0);
+      setLevelScore(0);
+      setLevelLinesCleared(0);
+      setShapes(getValidShapes(1, initialGrid, 0));
       setScore(0);
       setDisplayScore(0);
       setCombo(0);
@@ -1330,11 +1382,6 @@ export default function GameScreen({
     };
   };
 
-  const showValidHint = (shape: Shape | null): boolean => {
-    if (!shape || drag) return false;
-    return canPlaceAnywhere(gridStateRef.current, shape);
-  };
-
   return (
     <div
       onPointerMove={drag ? handlePointerMove : undefined}
@@ -1351,77 +1398,71 @@ export default function GameScreen({
         userSelect: "none",
         WebkitUserSelect: "none",
         touchAction: "none",
-        transition: "background 1s ease-in-out",
+        transition: "background 0.8s ease-in-out",
         position: "relative",
         overflow: "hidden",
       }}
     >
       <style>{`
-        /* Yay (spring) ve yumuşak doku için optimize edildi */
         .block-3d {
           border-radius: 4px;
           box-sizing: border-box;
-          border-top: 2.5px solid rgba(255, 255, 255, 0.5);
-          border-left: 2.5px solid rgba(255, 255, 255, 0.3);
-          border-right: 2.5px solid rgba(0, 0, 0, 0.2);
-          border-bottom: 2.5px solid rgba(0, 0, 0, 0.4);
-          box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1), 0 4px 8px rgba(0, 0, 0, 0.3);
+          border-top: 2px solid rgba(255, 255, 255, 0.4);
+          border-left: 2px solid rgba(255, 255, 255, 0.2);
+          border-right: 2px solid rgba(0, 0, 0, 0.2);
+          border-bottom: 2px solid rgba(0, 0, 0, 0.3);
+          box-shadow: 0 2px 4px rgba(0, 0, 0, 0.25);
           will-change: transform, opacity;
           transform: translateZ(0);
         }
+        @keyframes fadeInOverlay {
+          from { opacity: 0; transform: scale(0.95); }
+          to { opacity: 1; transform: scale(1); }
+        }
         @keyframes bgMatchingGlowPulse {
-          0% { box-shadow: 0 0 18px #00d2ff, inset 0 0 15px rgba(0, 210, 255, 0.4); border-color: #00d2ff; }
-          50% { box-shadow: 0 0 18px #6a11cb, inset 0 0 15px rgba(106, 17, 203, 0.4); border-color: #6a11cb; }
-          100% { box-shadow: 0 0 18px #00d2ff, inset 0 0 15px rgba(0, 210, 255, 0.4); border-color: #00d2ff; }
+          0% { border-color: #00d2ff; opacity: 1; }
+          50% { border-color: #6a11cb; opacity: 0.85; }
+          100% { border-color: #00d2ff; opacity: 1; }
         }
         @keyframes themeLightSeq {
-          0% { background-color: #00d2ff; box-shadow: 0 0 12px #00d2ff; }
-          50% { background-color: #ffe600; box-shadow: 0 0 12px #ffe600; }
-          100% { background-color: #00d2ff; box-shadow: 0 0 12px #00d2ff; }
+          0% { background-color: #00d2ff; transform: translate(-50%, -50%) scale(1); }
+          50% { background-color: #ffe600; transform: translate(-50%, -50%) scale(1.15); }
+          100% { background-color: #00d2ff; transform: translate(-50%, -50%) scale(1); }
         }
         @keyframes blinkGameOver {
           0%, 100% { opacity: 1; transform: scale(1); }
           50% { opacity: 0.15; transform: scale(0.96); }
         }
         @keyframes gameOverAnim {
-          0% { transform: scale(0.2) rotate(-10deg); opacity: 0; filter: blur(10px); }
-          60% { transform: scale(1.25) rotate(3deg); opacity: 1; filter: blur(0px); }
-          80% { transform: scale(0.95) rotate(-1deg); }
+          0% { transform: scale(0.2) rotate(-10deg); opacity: 0; }
+          60% { transform: scale(1.1) rotate(2deg); opacity: 1; }
           100% { transform: scale(1) rotate(0deg); opacity: 1; }
         }
         @keyframes perfectGlow {
-          0% {
-            text-shadow: 0 0 10px #ffffff, 0 0 20px #ffe600, 0 0 35px #ff007f;
-            transform: translate(-50%, -50%) scale(1);
-          }
-          100% {
-            text-shadow: 0 0 20px #ffffff, 0 0 30px #00f0ff, 0 0 50px #39ff14;
-            transform: translate(-50%, -50%) scale(1.12);
-          }
+          0% { transform: translate(-50%, -50%) scale(1); }
+          100% { transform: translate(-50%, -50%) scale(1.08); }
         }
         @keyframes lineClearGlow {
           0% { opacity: 1; transform: scale(0.98); }
-          50% { opacity: 1; transform: scale(1.15); }
-          100% { opacity: 0; transform: scale(0.3); }
+          50% { opacity: 1; transform: scale(1.05); }
+          100% { opacity: 0; transform: scale(0.5); }
         }
         @keyframes lineClearFlash {
-          0% { opacity: 0; transform: scaleX(0.8); }
-          50% { opacity: 1; transform: scaleX(1.05); }
-          100% { opacity: 0; transform: scaleX(1); }
+          0% { opacity: 0; }
+          50% { opacity: 1; }
+          100% { opacity: 0; }
         }
         @keyframes popSquare {
           0% { transform: scale(0); opacity: 0; }
-          70% { transform: scale(1.1); opacity: 1; }
           100% { transform: scale(1); opacity: 1; }
         }
         @keyframes floatUpScore {
-          0% { opacity: 1; transform: translate(-50%, -50%) scale(1.2); }
-          50% { opacity: 1; transform: translate(-50%, -100px) scale(1.3); }
-          100% { opacity: 0; transform: translate(-50%, -180px) scale(0.7); }
+          0% { opacity: 1; transform: translate(-50%, -50%) scale(1.1); }
+          100% { opacity: 0; transform: translate(-50%, -140px) scale(0.8); }
         }
       `}</style>
 
-      {/* Üst Bar */}
+      {/* Üst Bar / İstatistikler */}
       <div
         style={{
           width: "100%",
@@ -1433,7 +1474,10 @@ export default function GameScreen({
           boxSizing: "border-box",
         }}
       >
-        <div style={{ width: 32 }} />
+        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          <span style={{ fontSize: 12, color: "#94a3b8", fontWeight: 700 }}>SEVİYE {gameDifficulty}</span>
+          <span style={{ fontSize: 11, color: "#38bdf8", fontWeight: 600 }}>Puan: {levelScore}/2500</span>
+        </div>
 
         <div
           style={{
@@ -1468,7 +1512,7 @@ export default function GameScreen({
               borderRadius: "50%",
               background: "radial-gradient(circle at 35% 35%, #38bdf8 0%, #0284c7 100%)",
               border: "3px solid #001e38",
-              boxShadow: "0 4px 10px rgba(0,0,0,0.4), inset 0 2px 4px rgba(255,255,255,0.4)",
+              boxShadow: "0 4px 10px rgba(0,0,0,0.4)",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -1490,7 +1534,7 @@ export default function GameScreen({
               borderRadius: "50%",
               background: "radial-gradient(circle at 35% 35%, #f97316 0%, #ea580c 100%)",
               border: "3px solid #381200",
-              boxShadow: "0 4px 10px rgba(0,0,0,0.4), inset 0 2px 4px rgba(255,255,255,0.4)",
+              boxShadow: "0 4px 10px rgba(0,0,0,0.4)",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -1555,27 +1599,27 @@ export default function GameScreen({
             ? "bgMatchingGlowPulse 1.5s infinite linear"
             : "none",
           transition: "border 0.3s ease",
-          overflow: "visible",
+          overflow: "hidden",
           touchAction: "none",
         }}
       >
         {isFiftyPercentFull && (
           <div style={{ position: "absolute", inset: -12, pointerEvents: "none", zIndex: 25 }}>
-            {Array.from({ length: 16 }).map((_, idx) => {
+            {Array.from({ length: 12 }).map((_, idx) => {
               let top = "0%";
               let left = "0%";
-              if (idx < 5) {
-                left = `${(idx / 4) * 100}%`;
+              if (idx < 4) {
+                left = `${(idx / 3) * 100}%`;
                 top = "0%";
-              } else if (idx < 9) {
+              } else if (idx < 7) {
                 left = "100%";
-                top = `${((idx - 4) / 4) * 100}%`;
-              } else if (idx < 13) {
-                left = `${(1 - (idx - 8) / 4) * 100}%`;
+                top = `${((idx - 3) / 3) * 100}%`;
+              } else if (idx < 10) {
+                left = `${(1 - (idx - 6) / 3) * 100}%`;
                 top = "100%";
               } else {
                 left = "0%";
-                top = `${(1 - (idx - 12) / 4) * 100}%`;
+                top = `${(1 - (idx - 9) / 3) * 100}%`;
               }
               return (
                 <div
@@ -1584,8 +1628,8 @@ export default function GameScreen({
                     position: "absolute",
                     left,
                     top,
-                    width: 12,
-                    height: 12,
+                    width: 10,
+                    height: 10,
                     borderRadius: "50%",
                     transform: "translate(-50%, -50%)",
                     animation: "themeLightSeq 0.8s infinite linear",
@@ -1597,9 +1641,37 @@ export default function GameScreen({
           </div>
         )}
 
+        {/* Masayı Kaplayan Seviye Geçiş Ekranı Overlay */}
+        {isLevelTransitioning && (
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              background: "rgba(15, 23, 42, 0.96)",
+              display: "flex",
+              flexDirection: "column",
+              justifyContent: "center",
+              alignItems: "center",
+              zIndex: 150,
+              borderRadius: 12,
+              animation: "fadeInOverlay 0.4s ease-out",
+            }}
+          >
+            <h2 style={{ color: "#38bdf8", fontSize: 18, letterSpacing: 2, marginBottom: 8, fontWeight: 700 }}>
+              BÖLÜM TAMAMLANDI!
+            </h2>
+            <h1 style={{ color: "#facc15", fontSize: 34, marginBottom: 12, fontWeight: 900 }}>
+              SEVİYE {gameDifficulty + 1}
+            </h1>
+            <p style={{ color: "#94a3b8", fontSize: 14 }}>Yeni Bulmaca Yükleniyor...</p>
+          </div>
+        )}
+
         {grid.map((row, r) =>
           row.map((cell, c) => {
             const isClearingCell = clearingRows.includes(r) || clearingCols.includes(c);
+            const isPrefilled = cell === 99;
+
             return (
               <div
                 key={`${r}-${c}`}
@@ -1609,18 +1681,20 @@ export default function GameScreen({
                   transform: `translate3d(${(c * totalCellSize)}px, ${(r * totalCellSize)}px, 0)`,
                   width: cellSize,
                   height: cellSize,
-                  // Ana renk temasına bağlandı (Hem masa hem de bloklar değişir)
-                  background: cell
+                  background: isPrefilled
+                    ? "#64748b"
+                    : cell
                     ? THEME_COLORS[bgIndex % THEME_COLORS.length]
                     : "rgba(255,255,255,0.05)",
+                  border: isPrefilled ? "2px solid #475569" : undefined,
                   borderRadius: cell ? 2 : 4,
                   boxSizing: "border-box",
-                  transition: isClearingCell ? "none" : "background 0.5s ease",
+                  transition: isClearingCell ? "none" : "background 0.3s ease",
                   animation: isClearingCell
-                    ? "lineClearGlow 0.2s ease-out forwards"
+                    ? "lineClearGlow 0.15s ease-out forwards"
                     : "none",
                   zIndex: isClearingCell ? 20 : 1,
-                  willChange: isClearingCell ? "transform, opacity" : "transform",
+                  willChange: "transform",
                 }}
               />
             );
@@ -1641,8 +1715,8 @@ export default function GameScreen({
               background: "linear-gradient(90deg, transparent, #ff007f, #ffffff, #00f0ff, transparent)",
               pointerEvents: "none",
               zIndex: 30,
-              animation: "lineClearFlash 0.2s ease-out forwards",
-              willChange: "transform, opacity",
+              animation: "lineClearFlash 0.15s ease-out forwards",
+              willChange: "opacity",
             }}
           />
         ))}
@@ -1659,8 +1733,8 @@ export default function GameScreen({
               background: "linear-gradient(180deg, transparent, #ff007f, #ffffff, #00f0ff, transparent)",
               pointerEvents: "none",
               zIndex: 30,
-              animation: "lineClearFlash 0.2s ease-out forwards",
-              willChange: "transform, opacity",
+              animation: "lineClearFlash 0.15s ease-out forwards",
+              willChange: "opacity",
             }}
           />
         ))}
@@ -1675,7 +1749,6 @@ export default function GameScreen({
               fontSize: 34,
               fontWeight: 900,
               color: "#ffe600",
-              textShadow: "0 0 20px #ff007f, 0 0 40px #ffe600, 0 0 60px #00f0ff",
               pointerEvents: "none",
               zIndex: 40,
               textAlign: "center",
@@ -1696,7 +1769,6 @@ export default function GameScreen({
               fontSize: 40,
               fontWeight: 900,
               color: "#00f0ff",
-              textShadow: "0 0 20px #00f0ff, 0 0 40px #ffffff, 0 0 60px #ff007f",
               pointerEvents: "none",
               zIndex: 60,
               textAlign: "center",
@@ -1739,10 +1811,9 @@ export default function GameScreen({
               fontSize: 28,
               fontWeight: 900,
               color: "#39ff14",
-              textShadow: "0 0 10px #39ff14, 0 0 25px #ffffff",
               pointerEvents: "none",
               zIndex: 50,
-              animation: "floatUpScore 0.8s ease-out forwards",
+              animation: "floatUpScore 0.75s ease-out forwards",
             }}
           >
             +{f.points}
@@ -1779,7 +1850,7 @@ export default function GameScreen({
                   className="block-3d"
                   style={{
                     background: COLORS[i % COLORS.length],
-                    animation: `popSquare 0.4s ease ${(i * 0.015)}s forwards`,
+                    animation: `popSquare 0.3s ease ${(i * 0.01)}s forwards`,
                     transform: "scale(0)",
                   }}
                 />
@@ -1793,11 +1864,10 @@ export default function GameScreen({
                 fontSize: 42,
                 fontWeight: 900,
                 color: "#ff4757",
-                textShadow: "0 0 20px #ff4757, 0 0 40px #ff0055, 0 0 60px #ffffff",
                 letterSpacing: 3,
                 textAlign: "center",
                 whiteSpace: "nowrap",
-                animation: "gameOverAnim 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards",
+                animation: "gameOverAnim 0.6s ease forwards",
               }}
             >
               GAME OVER
@@ -1833,9 +1903,8 @@ export default function GameScreen({
               alignItems: "center",
               justifyContent: "center",
               cursor: shape ? "grab" : "default",
-              // Tıklandığında spring hissiyatı için küçülme ve solma animasyonu eklendi
               transform: drag?.shapeIndex === index ? "scale(0.8)" : "scale(1)",
-              transition: "transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.2s ease",
+              transition: "transform 0.15s ease, opacity 0.15s ease",
               opacity: drag?.shapeIndex === index ? 0.3 : 1,
               touchAction: "none",
             }}
@@ -1847,9 +1916,6 @@ export default function GameScreen({
                   gridTemplateColumns: `repeat(${shape.width}, 20px)`,
                   gridTemplateRows: `repeat(${shape.height}, 20px)`,
                   gap: 2,
-                  filter: showValidHint(shape)
-                    ? "drop-shadow(0 0 6px rgba(255,255,255,0.6))"
-                    : "none",
                 }}
               >
                 {shape.cells.map((row, r) =>
@@ -1880,10 +1946,9 @@ export default function GameScreen({
               gridTemplateColumns: `repeat(${drag.shape.width}, ${cellSize}px)`,
               gridTemplateRows: `repeat(${drag.shape.height}, ${cellSize}px)`,
               gap,
-              // Block Blast tarzı ele alınca hafif büyüme / spring efekti
               transform: "scale(1.15)",
               transformOrigin: drag.isTouch ? "bottom center" : "center",
-              transition: "transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1)",
+              transition: "transform 0.1s ease",
             }}
           >
             {drag.shape.cells.map((row, r) =>
@@ -1924,7 +1989,6 @@ export default function GameScreen({
               color: gameOverColor,
               marginBottom: 15,
               letterSpacing: 2,
-              textShadow: `0 0 15px ${gameOverColor}`,
               animation: "blinkGameOver 1s infinite ease-in-out",
             }}
           >
@@ -1951,7 +2015,6 @@ export default function GameScreen({
               border: "none",
               borderRadius: 30,
               cursor: "pointer",
-              boxShadow: "0 0 15px #22c55e",
             }}
           >
             TEKRAR OYNA
