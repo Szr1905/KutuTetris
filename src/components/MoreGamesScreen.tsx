@@ -70,13 +70,16 @@ export default function MoreGamesScreen({ theme, onBack, onSelectGame }: MoreGam
     <div
       style={{
         background: theme.bgColor,
-        minHeight: "100vh",
+        height: "100vh",
+        maxHeight: "100vh",
+        overflowY: "auto", // Aşağı doğru kaydırma (scroll) sağlayan kritik ekleme
+        WebkitOverflowScrolling: "touch", // Mobilde akıcı kaydırma desteği
         color: theme.textColor,
         fontFamily: "'Nunito', sans-serif",
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
-        padding: 20,
+        padding: "20px 20px 40px 20px", // Alt kısma ekstra padding eklendi
         boxSizing: "border-box",
       }}
     >
@@ -88,6 +91,11 @@ export default function MoreGamesScreen({ theme, onBack, onSelectGame }: MoreGam
           justifyContent: "space-between",
           alignItems: "center",
           marginBottom: 24,
+          position: "sticky",
+          top: 0,
+          zIndex: 10,
+          background: theme.bgColor,
+          padding: "10px 0",
         }}
       >
         <button
