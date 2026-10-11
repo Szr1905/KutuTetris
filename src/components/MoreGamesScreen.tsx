@@ -57,6 +57,14 @@ export default function MoreGamesScreen({ theme, onBack, onSelectGame }: MoreGam
       color: "#8b5cf6",
     },
     {
+      id: "tic-tac-toe",
+      name: "Tic Tac Toe (XOX)",
+      description: "Klasik XOX Strateji Oyunu",
+      icon: "❌",
+      difficulty: "Kolay",
+      color: "#eab308",
+    },
+    {
       id: "snake",
       name: "Yılan Oyunu",
       description: "Yılanı Büyüt ve Engellere Çarpma",
@@ -72,14 +80,14 @@ export default function MoreGamesScreen({ theme, onBack, onSelectGame }: MoreGam
         background: theme.bgColor,
         height: "100vh",
         maxHeight: "100vh",
-        overflowY: "auto", // Aşağı doğru kaydırma (scroll) sağlayan kritik ekleme
-        WebkitOverflowScrolling: "touch", // Mobilde akıcı kaydırma desteği
+        overflowY: "auto",
+        WebkitOverflowScrolling: "touch",
         color: theme.textColor,
         fontFamily: "'Nunito', sans-serif",
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
-        padding: "20px 20px 40px 20px", // Alt kısma ekstra padding eklendi
+        padding: "20px 20px 40px 20px",
         boxSizing: "border-box",
       }}
     >
