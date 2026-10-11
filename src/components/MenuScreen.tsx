@@ -40,10 +40,7 @@ export default function MenuScreen({
       player: "Oyuncu",
       best: "En İyi",
       play: "▶ Oyna",
-      badges: "🛒 Rozetler",
-      adventure: "🏆 Serüven",
       moreGames: "🎮 Diğer Oyunlar",
-      comingSoon: "Pek Yakında",
       settings: "⚙ Ayarlar",
       settingsTitle: "Ayarlar",
       soundEffects: "Ses Efektleri",
@@ -54,10 +51,7 @@ export default function MenuScreen({
       player: "Player",
       best: "Best",
       play: "▶ Play",
-      badges: "🛒 Badges",
-      adventure: "🏆 Adventure",
       moreGames: "🎮 More Games",
-      comingSoon: "Coming Soon",
       settings: "⚙ Settings",
       settingsTitle: "Settings",
       soundEffects: "Sound Effects",
@@ -128,7 +122,7 @@ export default function MenuScreen({
               letterSpacing: -1,
             }}
           >
-            Kutu
+            Block
           </h1>
           <h1
             style={{
@@ -233,59 +227,12 @@ export default function MenuScreen({
           {t.play}
         </button>
 
-        {/* Secondary buttons */}
-        <div style={{ display: "flex", gap: 12 }}>
-          <button
-            onClick={onShop}
-            style={{
-              flex: 1,
-              background: "rgba(255,255,255,0.08)",
-              color: theme.textColor,
-              border: "none",
-              borderRadius: 14,
-              padding: "14px 16px",
-              fontSize: 16,
-              fontWeight: 700,
-              fontFamily: "'Nunito', sans-serif",
-              cursor: "pointer",
-              transition: "background 0.2s, transform 0.15s",
-            }}
-            onMouseDown={(e) => (e.currentTarget.style.transform = "scale(0.97)")}
-            onMouseUp={(e) => (e.currentTarget.style.transform = "scale(1)")}
-            onMouseLeave={(e) => (e.currentTarget.style.transform = "scale(1)")}
-          >
-            {t.badges}
-          </button>
-          <button
-            onClick={onLeaderboard}
-            style={{
-              flex: 1,
-              background: "rgba(255,255,255,0.08)",
-              color: theme.textColor,
-              border: "none",
-              borderRadius: 14,
-              padding: "14px 16px",
-              fontSize: 16,
-              fontWeight: 700,
-              fontFamily: "'Nunito', sans-serif",
-              cursor: "pointer",
-              transition: "background 0.2s, transform 0.15s",
-            }}
-            onMouseDown={(e) => (e.currentTarget.style.transform = "scale(0.97)")}
-            onMouseUp={(e) => (e.currentTarget.style.transform = "scale(1)")}
-            onMouseLeave={(e) => (e.currentTarget.style.transform = "scale(1)")}
-          >
-            {t.adventure}
-          </button>
-        </div>
-
         {/* More Games button */}
         <button
-          onClick={undefined}
-          disabled
+          onClick={onMoreGames}
           style={{
             width: "100%",
-            background: "rgba(255,255,255,0.04)",
+            background: "rgba(255,255,255,0.08)",
             color: theme.textColor,
             border: "none",
             borderRadius: 14,
@@ -293,17 +240,19 @@ export default function MenuScreen({
             fontSize: 16,
             fontWeight: 700,
             fontFamily: "'Nunito', sans-serif",
-            cursor: "not-allowed",
-            marginTop: 12,
-            opacity: 0.6,
+            cursor: "pointer",
+            marginTop: 4,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
             gap: 8,
+            transition: "background 0.2s, transform 0.15s",
           }}
+          onMouseDown={(e) => (e.currentTarget.style.transform = "scale(0.97)")}
+          onMouseUp={(e) => (e.currentTarget.style.transform = "scale(1)")}
+          onMouseLeave={(e) => (e.currentTarget.style.transform = "scale(1)")}
         >
           <span>{t.moreGames}</span>
-          <span style={{ fontSize: 11, background: "rgba(255,189,32,0.2)", color: "#ffbd20", padding: "2px 8px", borderRadius: 8 }}>{t.comingSoon}</span>
         </button>
 
         <button

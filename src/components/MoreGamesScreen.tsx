@@ -1,5 +1,4 @@
 import type { Theme } from "../lib/themes";
-import { GAMES } from "../lib/games";
 
 type MoreGamesScreenProps = {
   theme: Theme;
@@ -8,6 +7,65 @@ type MoreGamesScreenProps = {
 };
 
 export default function MoreGamesScreen({ theme, onBack, onSelectGame }: MoreGamesScreenProps) {
+  const games = [
+    {
+      id: "game-2048",
+      name: "2048",
+      description: "Blokları Birleştir ve 2048'e Ulaş",
+      icon: "🔢",
+      difficulty: "Kolay",
+      color: "#f59563",
+    },
+    {
+      id: "memory-match",
+      name: "Hafıza Oyunu",
+      description: "Kartları Eşleştir ve Hafızanı Test Et",
+      icon: "🃏",
+      difficulty: "Orta",
+      color: "#ec4899",
+    },
+    {
+      id: "wordle",
+      name: "Kelime Bulmaca",
+      description: "5 Harfli Gizli Kelimeyi Bul",
+      icon: "📝",
+      difficulty: "Kolay",
+      color: "#22c55e",
+    },
+    {
+      id: "minesweeper",
+      name: "Mayın Tarlası",
+      description: "Mayınlara Basmadan Tarlayı Temizle",
+      icon: "💣",
+      difficulty: "Orta",
+      color: "#ef4444",
+    },
+    {
+      id: "water-sort",
+      name: "Renk Sıralama",
+      description: "Tüplerdeki Renkli Topları Eşleştir",
+      icon: "🧪",
+      difficulty: "Orta",
+      color: "#3b82f6",
+    },
+    {
+      id: "chess",
+      name: "Satranç",
+      description: "Bot ile Karşılıklı Satranç",
+      icon: "♟️",
+      difficulty: "Zor",
+      color: "#8b5cf6",
+    },
+    {
+      id: "snake",
+      name: "Yılan Oyunu",
+      description: "Yılanı Büyüt ve Engellere Çarpma",
+      icon: "🐍",
+      difficulty: "Kolay",
+      color: "#06b6d4",
+    },
+  ];
+
   return (
     <div
       style={{
@@ -70,7 +128,7 @@ export default function MoreGamesScreen({ theme, onBack, onSelectGame }: MoreGam
           gap: 14,
         }}
       >
-        {GAMES.map((game) => (
+        {games.map((game) => (
           <button
             key={game.id}
             onClick={() => onSelectGame(game.id)}

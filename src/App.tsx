@@ -1,14 +1,18 @@
 import { useState, useEffect, useCallback } from "react";
 import MenuScreen from "./components/MenuScreen";
 import GameScreen from "./components/GameScreen";
-import ShopScreen from "./components/ShopScreen";
-import LeaderboardScreen from "./components/LeaderboardScreen";
 import MoreGamesScreen from "./components/MoreGamesScreen";
 import TicTacToeScreen from "./components/games/TicTacToeScreen";
 import WaterSortScreen from "./components/games/WaterSortScreen";
 import OnetScreen from "./components/games/OnetScreen";
 import SudokuScreen from "./components/games/SudokuScreen";
 import BlockSlideScreen from "./components/games/BlockSlideScreen";
+import ChessScreen from "./components/games/ChessScreen";
+import Game2048Screen from "./components/games/Game2048Screen";
+import MinesweeperScreen from "./components/games/MinesweeperScreen";
+import WordleScreen from "./components/games/WordleScreen";
+import SnakeScreen from "./components/games/SnakeScreen";
+import MemoryMatchScreen from "./components/games/MemoryMatchScreen";
 import IntroScreen from "./components/IntroScreen";
 import AdventureScreen from "./components/AdventureScreen";
 import BadgesScreen from "./components/BadgesScreen";
@@ -20,7 +24,7 @@ import {
   type PlayerProfile,
 } from "./lib/supabase";
 
-type Screen = "menu" | "game" | "adventure" | "badges" | "leaderboard" | "more-games" | "tic-tac-toe" | "water-sort" | "onet" | "sudoku" | "block-slide";
+type Screen = "menu" | "game" | "adventure" | "badges" | "leaderboard" | "more-games" | "tic-tac-toe" | "water-sort" | "onet" | "sudoku" | "block-slide" | "chess" | "game-2048" | "minesweeper" | "wordle" | "snake" | "memory-match";
 type Language = "tr" | "en";
 
 const getLocalBestScore = () => {
@@ -85,7 +89,6 @@ export default function App() {
         setProfile(defaultProfile);
       }
 
-      // Load owned themes from localStorage
       const stored = localStorage.getItem("ownedThemes");
       if (stored) {
         try {
@@ -144,7 +147,6 @@ export default function App() {
       const newCoins = activeProfile.coins + coinsEarned;
       const totalBlocksPlaced = (activeProfile.total_blocks_placed || 0) + stats.blocksPlaced;
 
-      // Yerel hafızayı ve en iyi skoru güncel tut
       localStorage.setItem("bestScore", newBest.toString());
       localStorage.setItem("coins", newCoins.toString());
       localStorage.setItem("totalBlocksPlaced", totalBlocksPlaced.toString());
@@ -205,47 +207,11 @@ export default function App() {
         console.error(e);
       }
 
-      // NOT: setScreen("menu") buradan kaldırıldı. 
-      // Oyun bittiğinde GameScreen ekrandan gitmeyecek, animasyonlar ve Game Over ekranı görünebilecek.
-      // Oyuncu menüye dönmek istediğinde GameScreen'deki onExit tetiklenecek.
       if (levelCompleted && gameMode === "adventure") {
         setGameLevel(newLevel);
       }
     },
     [profile, gameMode]
-  );
-
-  const handleBuy = useCallback(
-    (themeId: string, cost: number) => {
-      if (!profile || profile.coins < cost) return;
-      const newCoins = profile.coins - cost;
-      const newOwned = [...ownedThemes, themeId];
-
-      setProfile({ ...profile, coins: newCoins });
-      setOwnedThemes(newOwned);
-      localStorage.setItem("ownedThemes", JSON.stringify(newOwned));
-      updateProfile({ coins: newCoins, current_theme: themeId });
-    },
-    [profile, ownedThemes]
-  );
-
-  const handleEquip = useCallback(
-    (themeId: string) => {
-      if (!profile || !ownedThemes.includes(themeId)) return;
-      setProfile({ ...profile, current_theme: themeId });
-      updateProfile({ current_theme: themeId });
-    },
-    [profile, ownedThemes]
-  );
-
-  const handleBuyCoins = useCallback(
-    (amount: number) => {
-      if (!profile) return;
-      const newCoins = profile.coins + amount;
-      setProfile({ ...profile, coins: newCoins });
-      updateProfile({ coins: newCoins });
-    },
-    [profile]
   );
 
   const handleSaveName = useCallback(() => {
@@ -311,8 +277,6 @@ export default function App() {
           playerName={profile?.player_name || "Player"}
           coins={profile?.coins || 0}
           bestScore={profile?.best_score || 0}
-          language={language}
-          onLanguageChange={handleLanguageChange}
           onPlay={() => handlePlay(1, "main")}
           onShop={() => setScreen("badges")}
           onLeaderboard={() => setScreen("adventure")}
@@ -344,75 +308,12 @@ export default function App() {
       )}
 
       {screen === "adventure" && (
-        <div style={{ position: "relative" }}>
-          <AdventureScreen
-            theme={currentTheme}
-            currentLevel={profile?.adventure_level || 1}
-            onBack={() => setScreen("menu")}
-            onPlay={() => {}}
-          />
-          <div
-            style={{
-              position: "fixed",
-              inset: 0,
-              background: "rgba(15, 21, 37, 0.8)",
-              backdropFilter: "blur(6px)",
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              zIndex: 999,
-              color: "#fff",
-              padding: 20,
-              textAlign: "center",
-            }}
-          >
-            <div
-              style={{
-                background: "linear-gradient(135deg, #ff9f43, #ff5252)",
-                padding: "16px 36px",
-                borderRadius: 24,
-                fontSize: 28,
-                fontWeight: 900,
-                fontFamily: "'Fredoka', sans-serif",
-                boxShadow: "0 10px 30px rgba(255, 82, 82, 0.4)",
-                marginBottom: 16,
-                letterSpacing: 1,
-              }}
-            >
-              🔒 {language === "en" ? "COMING SOON" : "PEK YAKINDA"}
-            </div>
-            <p
-              style={{
-                fontFamily: "'Nunito', sans-serif",
-                fontSize: 16,
-                opacity: 0.85,
-                maxWidth: 280,
-                margin: "0 0 24px 0",
-              }}
-            >
-              {language === "en"
-                ? "Adventure mode will be available very soon."
-                : "Serüven modu çok yakında hizmetinizde olacaktır."}
-            </p>
-            <button
-              onClick={() => setScreen("menu")}
-              style={{
-                background: "rgba(255, 255, 255, 0.15)",
-                color: "#fff",
-                border: "1px solid rgba(255, 255, 255, 0.2)",
-                borderRadius: 14,
-                padding: "12px 28px",
-                fontWeight: 800,
-                fontSize: 16,
-                cursor: "pointer",
-                fontFamily: "'Nunito', sans-serif",
-              }}
-            >
-              ‹ {language === "en" ? "Back to Menu" : "Ana Menüye Dön"}
-            </button>
-          </div>
-        </div>
+        <AdventureScreen
+          theme={currentTheme}
+          currentLevel={profile?.adventure_level || 1}
+          onBack={() => setScreen("menu")}
+          onPlay={() => {}}
+        />
       )}
 
       {screen === "badges" && (
@@ -423,84 +324,60 @@ export default function App() {
         />
       )}
 
-      {screen === "leaderboard" && (
-        <LeaderboardScreen
+      {screen === "more-games" && (
+        <MoreGamesScreen
           theme={currentTheme}
-          playerBestScore={profile?.best_score || 0}
-          playerName={profile?.player_name || "Player"}
           onBack={() => setScreen("menu")}
+          onSelectGame={(gameId) => setScreen(gameId as Screen)}
         />
       )}
 
-      {screen === "more-games" && (
-        <div style={{ position: "relative" }}>
-          <MoreGamesScreen
-            theme={currentTheme}
-            onBack={() => setScreen("menu")}
-            onSelectGame={() => {}}
-          />
-          <div
-            style={{
-              position: "fixed",
-              inset: 0,
-              background: "rgba(15, 21, 37, 0.8)",
-              backdropFilter: "blur(6px)",
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              zIndex: 999,
-              color: "#fff",
-              padding: 20,
-              textAlign: "center",
-            }}
-          >
-            <div
-              style={{
-                background: "linear-gradient(135deg, #ff9f43, #ff5252)",
-                padding: "16px 36px",
-                borderRadius: 24,
-                fontSize: 28,
-                fontWeight: 900,
-                fontFamily: "'Fredoka', sans-serif",
-                boxShadow: "0 10px 30px rgba(255, 82, 82, 0.4)",
-                marginBottom: 16,
-                letterSpacing: 1,
-              }}
-            >
-              🔒 {language === "en" ? "COMING SOON" : "PEK YAKINDA"}
-            </div>
-            <p
-              style={{
-                fontFamily: "'Nunito', sans-serif",
-                fontSize: 16,
-                opacity: 0.85,
-                maxWidth: 280,
-                margin: "0 0 24px 0",
-              }}
-            >
-              {language === "en"
-                ? "Other games will be available very soon."
-                : "Diğer oyunlar çok yakında hizmetinizde olacaktır."}
-            </p>
-            <button
-              onClick={() => setScreen("menu")}
-              style={{
-                background: "rgba(255, 255, 255, 0.15)",
-                color: "#fff",
-                border: "1px solid rgba(255, 255, 255, 0.2)",
-                borderRadius: 14,
-                padding: "12px 28px",
-                fontWeight: 800,
-                fontSize: 16,
-                cursor: "pointer",
-                fontFamily: "'Nunito', sans-serif",
-              }}
-            >
-              ‹ {language === "en" ? "Back to Menu" : "Ana Menüye Dön"}
-            </button>
-          </div>
-        </div>
+      {screen === "chess" && (
+        <ChessScreen
+          theme={currentTheme}
+          onBack={() => setScreen("more-games")}
+          onScore={handleMiniGameScore}
+        />
+      )}
+
+      {screen === "game-2048" && (
+        <Game2048Screen
+          theme={currentTheme}
+          onBack={() => setScreen("more-games")}
+          onScore={handleMiniGameScore}
+        />
+      )}
+
+      {screen === "minesweeper" && (
+        <MinesweeperScreen
+          theme={currentTheme}
+          onBack={() => setScreen("more-games")}
+          onScore={handleMiniGameScore}
+        />
+      )}
+
+      {screen === "wordle" && (
+        <WordleScreen
+          theme={currentTheme}
+          onBack={() => setScreen("more-games")}
+          onScore={handleMiniGameScore}
+        />
+      )}
+
+      {screen === "snake" && (
+        <SnakeScreen
+          theme={currentTheme}
+          onBack={() => setScreen("more-games")}
+          onScore={handleMiniGameScore}
+        />
+      )}
+
+      {screen === "memory-match" && (
+        <MemoryMatchScreen
+          theme={currentTheme}
+          onBack={() => setScreen("more-games")}
+          onScore={handleMiniGameScore}
+        />
       )}
 
       {screen === "tic-tac-toe" && (
