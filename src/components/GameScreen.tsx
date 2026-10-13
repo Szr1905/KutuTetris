@@ -133,7 +133,6 @@ const getLevelLayout = (level: number): number[][] => {
   if (LEVEL_LAYOUTS[level]) {
     return LEVEL_LAYOUTS[level].map(row => [...row]);
   }
-  // 5. seviyeden sonraki seviyeler için dinamik engel haritası
   const layout = createEmptyGrid();
   for (let r = 0; r < GRID_SIZE; r++) {
     for (let c = 0; c < GRID_SIZE; c++) {
@@ -315,11 +314,9 @@ export default function GameScreen({
   const [levelBlocksPlaced, setLevelBlocksPlaced] = useState(savedState?.levelBlocksPlaced ?? 0);
   const [totalLinesCleared, setTotalLinesCleared] = useState(savedState?.totalLinesCleared ?? 0);
 
-  // Mevcut Seviyedeki Puan ve Temizlenen Satır/Sütun Sayaçları
   const [levelScore, setLevelScore] = useState(savedState?.levelScore ?? 0);
   const [levelLinesCleared, setLevelLinesCleared] = useState(savedState?.levelLinesCleared ?? 0);
 
-  // Seviye Geçiş Ekranı (Overlay) Durumu
   const [isLevelTransitioning, setIsLevelTransitioning] = useState(false);
 
   const [levelUpText] = useState<string | null>(null);
@@ -346,9 +343,7 @@ export default function GameScreen({
         if (AudioCtx && !audioCtxRef.current) {
           audioCtxRef.current = new AudioCtx();
         }
-      } catch {
-        /* Web Audio desteklenmiyor */
-      }
+      } catch {}
 
       soundFiles.forEach(async (file) => {
         try {
@@ -358,9 +353,7 @@ export default function GameScreen({
             const decodedData = await audioCtxRef.current.decodeAudioData(arrayBuffer);
             audioBuffersRef.current[file] = decodedData;
           }
-        } catch {
-          /* Ses yüklenemedi */
-        }
+        } catch {}
       });
     };
 
@@ -393,9 +386,7 @@ export default function GameScreen({
       }
       const audio = new Audio(`/${filename}`);
       audio.play().catch(() => {});
-    } catch {
-      /* Audio play error */
-    }
+    } catch {}
   }, [soundEnabled]);
 
   const playSynthSound = useCallback((type: "grab" | "place" | "clear_1" | "clear_2" | "clear_3" | "clear_4" | "clear_5" | "combo_lively" | "warning" | "lively" | "start_fanfare" | "levelup_fanfare", level: number = 0) => {
@@ -471,14 +462,25 @@ export default function GameScreen({
           playTone(freq, now + idx * 0.035, 0.25, "sine", 0.2);
         });
       } else if (type === "combo_lively") {
-        const baseFreq = 523.25 + Math.min(level, 10) * 80;
-        playTone(baseFreq, now, 0.15, "sine", 0.25, baseFreq * 1.35);
+        const comboStep = Math.min(level, 6);
+        if (comboStep <= 1) {
+          playTone(523.25, now, 0.18, "sine", 0.25, 660);
+        } else if (comboStep === 2) {
+          playTone(659.25, now, 0.15, "triangle", 0.28, 880);
+          playTone(783.99, now + 0.04, 0.16, "sine", 0.24, 1046.50);
+        } else if (comboStep === 3) {
+          [523.25, 659.25, 783.99].forEach((f, i) => {
+            playTone(f, now + i * 0.04, 0.2, "triangle", 0.26, f * 1.4);
+          });
+        } else {
+          [523.25, 659.25, 783.99, 1046.50, 1318.51].forEach((f, i) => {
+            playTone(f, now + i * 0.03, 0.24, "sine", 0.3, f * 1.5);
+          });
+        }
       } else if (type === "lively") {
         playTone(600, now, 0.12, "sine", 0.2, 1400);
       }
-    } catch {
-      /* Audio Synth error */
-    }
+    } catch {}
   }, [soundEnabled]);
 
   const playSound = useCallback(
@@ -580,7 +582,7 @@ export default function GameScreen({
   const [gameOverModalShow, setGameOverModalShow] = useState(false);
   const [gameOverColor, setGameOverColor] = useState("#ff4757");
 
-  const [isFiftyPercentFull, setIsFiftyPercentFull] = useState(false);
+  const [isHighCapacityFull, setIsHighCapacityFull] = useState(false);
   const [showPerfectClear, setShowPerfectClear] = useState(false);
 
   const [, setBurst] = useState<{
@@ -633,9 +635,7 @@ export default function GameScreen({
         levelLinesCleared,
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(stateToSave));
-    } catch {
-      /* localStorage write error */
-    }
+    } catch {}
   }, [score, currentBestScore, gameDifficulty, clearedCount, bgIndex, coinsEarned, levelBlocksPlaced, totalLinesCleared, levelScore, levelLinesCleared, gameOver]);
 
   useEffect(() => {
@@ -678,6 +678,7 @@ export default function GameScreen({
     return () => cancelAnimationFrame(animId);
   }, [ledParticles.length > 0]);
 
+  // %95 doluluk oranı kontrolü
   useEffect(() => {
     let filled = 0;
     for (let r = 0; r < GRID_SIZE; r++) {
@@ -687,11 +688,11 @@ export default function GameScreen({
     }
     const ratio = filled / (GRID_SIZE * GRID_SIZE);
 
-    if (!isFiftyPercentFull && ratio >= 0.50) {
+    if (!isHighCapacityFull && ratio >= 0.95) {
       playSound("warning");
     }
-    setIsFiftyPercentFull(ratio >= 0.50);
-  }, [grid, isFiftyPercentFull, playSound]);
+    setIsHighCapacityFull(ratio >= 0.95);
+  }, [grid, isHighCapacityFull, playSound]);
 
   useEffect(() => {
     if (displayScore === score) return;
@@ -812,7 +813,6 @@ export default function GameScreen({
     }, GRID_SIZE * 80 + 180);
   }, []);
 
-  // Seviye Geçişi Tetikleme Fonksiyonu
   const triggerLevelTransition = useCallback(
     (nextLevel: number, newTotalScore: number) => {
       setIsLevelTransitioning(true);
@@ -896,7 +896,6 @@ export default function GameScreen({
       const newTotalLinesCleared = totalLinesCleared + totalLines;
       setTotalLinesCleared(newTotalLinesCleared);
 
-      // Sadece 2500 puan olunca seviye geçilsin
       const isLevelUp = newLevelScore >= 2500;
 
       if (totalLines > 0) {
@@ -935,7 +934,6 @@ export default function GameScreen({
           playSound("clear", newCombo, totalLines);
         }
 
-        // PERFECT CLEAR
         if (isBoardEmpty) {
           setShowPerfectClear(true);
           playSound("perfectclear");
@@ -1049,7 +1047,7 @@ export default function GameScreen({
         targetRow < 0 ||
         targetCol < 0 ||
         targetRow >= GRID_SIZE ||
-        targetCol >= GRID_SIZE
+        targetRow >= GRID_SIZE
       ) {
         return null;
       }
@@ -1240,7 +1238,7 @@ export default function GameScreen({
       setBurst(null);
       setLedParticles([]);
       setComboText(null);
-      setIsFiftyPercentFull(false);
+      setIsHighCapacityFull(false);
       setShowPerfectClear(false);
       maxComboRef.current = 0;
       maxMultiClearRef.current = 0;
@@ -1313,7 +1311,7 @@ export default function GameScreen({
           transform: `translate3d(0, ${(r * totalCellSize)}px, 0)`,
           width: GRID_SIZE * totalCellSize - gap,
           height: cellSize,
-          borderRadius: 6,
+          borderRadius: 8,
           border: "2.5px solid #00f0ff",
           boxSizing: "border-box",
           pointerEvents: "none",
@@ -1333,7 +1331,7 @@ export default function GameScreen({
           transform: `translate3d(${(c * totalCellSize)}px, 0, 0)`,
           width: cellSize,
           height: GRID_SIZE * totalCellSize - gap,
-          borderRadius: 6,
+          borderRadius: 8,
           border: "2.5px solid #ff007f",
           boxSizing: "border-box",
           pointerEvents: "none",
@@ -1405,13 +1403,12 @@ export default function GameScreen({
     >
       <style>{`
         .block-3d {
-          border-radius: 4px;
+          border-radius: 8px;
           box-sizing: border-box;
-          border-top: 2px solid rgba(255, 255, 255, 0.4);
-          border-left: 2px solid rgba(255, 255, 255, 0.2);
-          border-right: 2px solid rgba(0, 0, 0, 0.2);
-          border-bottom: 2px solid rgba(0, 0, 0, 0.3);
-          box-shadow: 0 2px 4px rgba(0, 0, 0, 0.25);
+          box-shadow: inset 0 3px 4px rgba(255, 255, 255, 0.6),
+                      inset 0 -3px 5px rgba(0, 0, 0, 0.45),
+                      0 1px 3px rgba(0, 0, 0, 0.25);
+          filter: brightness(1.05) saturate(1.1);
           will-change: transform, opacity;
           transform: translateZ(0);
         }
@@ -1582,29 +1579,24 @@ export default function GameScreen({
         </button>
       </div>
 
-      {/* Oyun Tahtası */}
+      {/* Oyun Tahtası Çerçevesi (İç Padding ile Blokların Yuvarlatılmış Köşelerden Taşması Engellendi) */}
       <div
-        ref={gridRef}
         style={{
-          position: "relative",
-          width: GRID_SIZE * totalCellSize - gap,
-          height: GRID_SIZE * totalCellSize - gap,
           background: "rgba(10, 20, 40, 0.6)",
-          borderRadius: 12,
-          padding: 0,
-          border: isFiftyPercentFull
+          borderRadius: 16,
+          padding: 6,
+          border: isHighCapacityFull
             ? "3px solid #00d2ff"
             : "2px solid rgba(255,255,255,0.1)",
-          animation: isFiftyPercentFull
+          animation: isHighCapacityFull
             ? "bgMatchingGlowPulse 1.5s infinite linear"
             : "none",
           transition: "border 0.3s ease",
-          overflow: "hidden",
-          touchAction: "none",
+          position: "relative",
         }}
       >
-        {isFiftyPercentFull && (
-          <div style={{ position: "absolute", inset: -12, pointerEvents: "none", zIndex: 25 }}>
+        {isHighCapacityFull && (
+          <div style={{ position: "absolute", inset: -6, pointerEvents: "none", zIndex: 25 }}>
             {Array.from({ length: 12 }).map((_, idx) => {
               let top = "0%";
               let left = "0%";
@@ -1641,239 +1633,251 @@ export default function GameScreen({
           </div>
         )}
 
-        {/* Masayı Kaplayan Seviye Geçiş Ekranı Overlay */}
-        {isLevelTransitioning && (
-          <div
-            style={{
-              position: "absolute",
-              inset: 0,
-              background: "rgba(15, 23, 42, 0.96)",
-              display: "flex",
-              flexDirection: "column",
-              justifyContent: "center",
-              alignItems: "center",
-              zIndex: 150,
-              borderRadius: 12,
-              animation: "fadeInOverlay 0.4s ease-out",
-            }}
-          >
-            <h2 style={{ color: "#38bdf8", fontSize: 18, letterSpacing: 2, marginBottom: 8, fontWeight: 700 }}>
-              BÖLÜM TAMAMLANDI!
-            </h2>
-            <h1 style={{ color: "#facc15", fontSize: 34, marginBottom: 12, fontWeight: 900 }}>
-              SEVİYE {gameDifficulty + 1}
-            </h1>
-            <p style={{ color: "#94a3b8", fontSize: 14 }}>Yeni Bulmaca Yükleniyor...</p>
-          </div>
-        )}
-
-        {grid.map((row, r) =>
-          row.map((cell, c) => {
-            const isClearingCell = clearingRows.includes(r) || clearingCols.includes(c);
-            const isPrefilled = cell === 99;
-
-            return (
-              <div
-                key={`${r}-${c}`}
-                className={cell ? "block-3d" : ""}
-                style={{
-                  position: "absolute",
-                  transform: `translate3d(${(c * totalCellSize)}px, ${(r * totalCellSize)}px, 0)`,
-                  width: cellSize,
-                  height: cellSize,
-                  background: isPrefilled
-                    ? "#64748b"
-                    : cell
-                    ? THEME_COLORS[bgIndex % THEME_COLORS.length]
-                    : "rgba(255,255,255,0.05)",
-                  border: isPrefilled ? "2px solid #475569" : undefined,
-                  borderRadius: cell ? 2 : 4,
-                  boxSizing: "border-box",
-                  transition: isClearingCell ? "none" : "background 0.3s ease",
-                  animation: isClearingCell
-                    ? "lineClearGlow 0.15s ease-out forwards"
-                    : "none",
-                  zIndex: isClearingCell ? 20 : 1,
-                  willChange: "transform",
-                }}
-              />
-            );
-          })
-        )}
-        {renderPreview()}
-
-        {clearingRows.map((r) => (
-          <div
-            key={`active-clear-row-${r}`}
-            style={{
-              position: "absolute",
-              left: 0,
-              transform: `translate3d(0, ${(r * totalCellSize)}px, 0)`,
-              width: GRID_SIZE * totalCellSize - gap,
-              height: cellSize,
-              borderRadius: 6,
-              background: "linear-gradient(90deg, transparent, #ff007f, #ffffff, #00f0ff, transparent)",
-              pointerEvents: "none",
-              zIndex: 30,
-              animation: "lineClearFlash 0.15s ease-out forwards",
-              willChange: "opacity",
-            }}
-          />
-        ))}
-        {clearingCols.map((c) => (
-          <div
-            key={`active-clear-col-${c}`}
-            style={{
-              position: "absolute",
-              top: 0,
-              transform: `translate3d(${(c * totalCellSize)}px, 0, 0)`,
-              width: cellSize,
-              height: GRID_SIZE * totalCellSize - gap,
-              borderRadius: 6,
-              background: "linear-gradient(180deg, transparent, #ff007f, #ffffff, #00f0ff, transparent)",
-              pointerEvents: "none",
-              zIndex: 30,
-              animation: "lineClearFlash 0.15s ease-out forwards",
-              willChange: "opacity",
-            }}
-          />
-        ))}
-
-        {comboText && (
-          <div
-            style={{
-              position: "absolute",
-              top: "50%",
-              left: "50%",
-              transform: "translate(-50%, -50%)",
-              fontSize: 34,
-              fontWeight: 900,
-              color: "#ffe600",
-              pointerEvents: "none",
-              zIndex: 40,
-              textAlign: "center",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {comboText}
-          </div>
-        )}
-
-        {levelUpText && (
-          <div
-            style={{
-              position: "absolute",
-              top: "50%",
-              left: "50%",
-              transform: "translate(-50%, -50%)",
-              fontSize: 40,
-              fontWeight: 900,
-              color: "#00f0ff",
-              pointerEvents: "none",
-              zIndex: 60,
-              textAlign: "center",
-              whiteSpace: "nowrap",
-              animation: "perfectGlow 0.8s infinite alternate ease-in-out",
-            }}
-          >
-            {levelUpText}
-          </div>
-        )}
-
-        {showPerfectClear && (
-          <div
-            style={{
-              position: "absolute",
-              top: "50%",
-              left: "50%",
-              transform: "translate(-50%, -50%)",
-              fontSize: 44,
-              fontWeight: 900,
-              color: "#ffffff",
-              letterSpacing: 3,
-              animation: "perfectGlow 0.8s infinite alternate ease-in-out",
-              pointerEvents: "none",
-              zIndex: 60,
-              whiteSpace: "nowrap",
-            }}
-          >
-            Perfect Clear!
-          </div>
-        )}
-
-        {floatingScores.map((f) => (
-          <div
-            key={f.id}
-            style={{
-              position: "absolute",
-              left: f.x,
-              top: f.y,
-              fontSize: 28,
-              fontWeight: 900,
-              color: "#39ff14",
-              pointerEvents: "none",
-              zIndex: 50,
-              animation: "floatUpScore 0.75s ease-out forwards",
-            }}
-          >
-            +{f.points}
-          </div>
-        ))}
-
-        {gameOverFill && (
-          <div
-            style={{
-              position: "absolute",
-              inset: 0,
-              background: "rgba(5, 10, 25, 0.95)",
-              zIndex: 100,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              overflow: "hidden",
-            }}
-          >
+        <div
+          ref={gridRef}
+          style={{
+            position: "relative",
+            width: GRID_SIZE * totalCellSize - gap,
+            height: GRID_SIZE * totalCellSize - gap,
+            borderRadius: 10,
+            overflow: "hidden",
+            touchAction: "none",
+          }}
+        >
+          {/* Masayı Kaplayan Seviye Geçiş Ekranı Overlay */}
+          {isLevelTransitioning && (
             <div
               style={{
                 position: "absolute",
                 inset: 0,
-                display: "grid",
-                gridTemplateColumns: `repeat(${GRID_SIZE}, 1fr)`,
-                gridTemplateRows: `repeat(${GRID_SIZE}, 1fr)`,
-                gap: 2,
-                padding: 4,
+                background: "rgba(15, 23, 42, 0.96)",
+                display: "flex",
+                flexDirection: "column",
+                justifyContent: "center",
+                alignItems: "center",
+                zIndex: 150,
+                borderRadius: 10,
+                animation: "fadeInOverlay 0.4s ease-out",
               }}
             >
-              {Array.from({ length: GRID_SIZE * GRID_SIZE }).map((_, i) => (
+              <h2 style={{ color: "#38bdf8", fontSize: 18, letterSpacing: 2, marginBottom: 8, fontWeight: 700 }}>
+                BÖLÜM TAMAMLANDI!
+              </h2>
+              <h1 style={{ color: "#facc15", fontSize: 34, marginBottom: 12, fontWeight: 900 }}>
+                SEVİYE {gameDifficulty + 1}
+              </h1>
+              <p style={{ color: "#94a3b8", fontSize: 14 }}>Yeni Bulmaca Yükleniyor...</p>
+            </div>
+          )}
+
+          {grid.map((row, r) =>
+            row.map((cell, c) => {
+              const isClearingCell = clearingRows.includes(r) || clearingCols.includes(c);
+              const isPrefilled = cell === 99;
+
+              return (
                 <div
-                  key={i}
-                  className="block-3d"
+                  key={`${r}-${c}`}
+                  className={cell ? "block-3d" : ""}
                   style={{
-                    background: COLORS[i % COLORS.length],
-                    animation: `popSquare 0.3s ease ${(i * 0.01)}s forwards`,
-                    transform: "scale(0)",
+                    position: "absolute",
+                    transform: `translate3d(${(c * totalCellSize)}px, ${(r * totalCellSize)}px, 0)`,
+                    width: cellSize,
+                    height: cellSize,
+                    background: isPrefilled
+                      ? "#64748b"
+                      : cell
+                      ? THEME_COLORS[bgIndex % THEME_COLORS.length]
+                      : "rgba(255,255,255,0.05)",
+                    border: isPrefilled ? "2px solid #475569" : undefined,
+                    borderRadius: cell ? 8 : 4,
+                    boxSizing: "border-box",
+                    transition: isClearingCell ? "none" : "background 0.3s ease",
+                    animation: isClearingCell
+                      ? "lineClearGlow 0.15s ease-out forwards"
+                      : "none",
+                    zIndex: isClearingCell ? 20 : 1,
+                    willChange: "transform",
                   }}
                 />
-              ))}
-            </div>
+              );
+            })
+          )}
+          {renderPreview()}
 
+          {clearingRows.map((r) => (
+            <div
+              key={`active-clear-row-${r}`}
+              style={{
+                position: "absolute",
+                left: 0,
+                transform: `translate3d(0, ${(r * totalCellSize)}px, 0)`,
+                width: GRID_SIZE * totalCellSize - gap,
+                height: cellSize,
+                borderRadius: 8,
+                background: "linear-gradient(90deg, transparent, #ff007f, #ffffff, #00f0ff, transparent)",
+                pointerEvents: "none",
+                zIndex: 30,
+                animation: "lineClearFlash 0.15s ease-out forwards",
+                willChange: "opacity",
+              }}
+            />
+          ))}
+          {clearingCols.map((c) => (
+            <div
+              key={`active-clear-col-${c}`}
+              style={{
+                position: "absolute",
+                top: 0,
+                transform: `translate3d(${(c * totalCellSize)}px, 0, 0)`,
+                width: cellSize,
+                height: GRID_SIZE * totalCellSize - gap,
+                borderRadius: 8,
+                background: "linear-gradient(180deg, transparent, #ff007f, #ffffff, #00f0ff, transparent)",
+                pointerEvents: "none",
+                zIndex: 30,
+                animation: "lineClearFlash 0.15s ease-out forwards",
+                willChange: "opacity",
+              }}
+            />
+          ))}
+
+          {comboText && (
             <div
               style={{
-                position: "relative",
-                zIndex: 110,
-                fontSize: 42,
+                position: "absolute",
+                top: "50%",
+                left: "50%",
+                transform: "translate(-50%, -50%)",
+                fontSize: 34,
                 fontWeight: 900,
-                color: "#ff4757",
-                letterSpacing: 3,
+                color: "#ffe600",
+                pointerEvents: "none",
+                zIndex: 40,
                 textAlign: "center",
                 whiteSpace: "nowrap",
-                animation: "gameOverAnim 0.6s ease forwards",
               }}
             >
-              GAME OVER
+              {comboText}
             </div>
-          </div>
-        )}
+          )}
+
+          {levelUpText && (
+            <div
+              style={{
+                position: "absolute",
+                top: "50%",
+                left: "50%",
+                transform: "translate(-50%, -50%)",
+                fontSize: 40,
+                fontWeight: 900,
+                color: "#00f0ff",
+                pointerEvents: "none",
+                zIndex: 60,
+                textAlign: "center",
+                whiteSpace: "nowrap",
+                animation: "perfectGlow 0.8s infinite alternate ease-in-out",
+              }}
+            >
+              {levelUpText}
+            </div>
+          )}
+
+          {showPerfectClear && (
+            <div
+              style={{
+                position: "absolute",
+                top: "50%",
+                left: "50%",
+                transform: "translate(-50%, -50%)",
+                fontSize: 44,
+                fontWeight: 900,
+                color: "#ffffff",
+                letterSpacing: 3,
+                animation: "perfectGlow 0.8s infinite alternate ease-in-out",
+                pointerEvents: "none",
+                zIndex: 60,
+                whiteSpace: "nowrap",
+              }}
+            >
+              Perfect Clear!
+            </div>
+          )}
+
+          {floatingScores.map((f) => (
+            <div
+              key={f.id}
+              style={{
+                position: "absolute",
+                left: f.x,
+                top: f.y,
+                fontSize: 28,
+                fontWeight: 900,
+                color: "#39ff14",
+                pointerEvents: "none",
+                zIndex: 50,
+                animation: "floatUpScore 0.75s ease-out forwards",
+              }}
+            >
+              +{f.points}
+            </div>
+          ))}
+
+          {gameOverFill && (
+            <div
+              style={{
+                position: "absolute",
+                inset: 0,
+                background: "rgba(5, 10, 25, 0.95)",
+                zIndex: 100,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                overflow: "hidden",
+              }}
+            >
+              <div
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  display: "grid",
+                  gridTemplateColumns: `repeat(${GRID_SIZE}, 1fr)`,
+                  gridTemplateRows: `repeat(${GRID_SIZE}, 1fr)`,
+                  gap: 2,
+                  padding: 4,
+                }}
+              >
+                {Array.from({ length: GRID_SIZE * GRID_SIZE }).map((_, i) => (
+                  <div
+                    key={i}
+                    className="block-3d"
+                    style={{
+                      background: COLORS[i % COLORS.length],
+                      animation: `popSquare 0.3s ease ${(i * 0.01)}s forwards`,
+                      transform: "scale(0)",
+                    }}
+                  />
+                ))}
+              </div>
+
+              <div
+                style={{
+                  position: "relative",
+                  zIndex: 110,
+                  fontSize: 42,
+                  fontWeight: 900,
+                  color: "#ff4757",
+                  letterSpacing: 3,
+                  textAlign: "center",
+                  whiteSpace: "nowrap",
+                  animation: "gameOverAnim 0.6s ease forwards",
+                }}
+              >
+                GAME OVER
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Şekil Seçim Tepsisi */}
@@ -1926,6 +1930,7 @@ export default function GameScreen({
                       style={{
                         width: 20,
                         height: 20,
+                        borderRadius: 5,
                         background: cell ? THEME_COLORS[bgIndex % THEME_COLORS.length] : "transparent",
                       }}
                     />
@@ -1959,6 +1964,7 @@ export default function GameScreen({
                   style={{
                     width: cellSize,
                     height: cellSize,
+                    borderRadius: 8,
                     background: cell ? THEME_COLORS[bgIndex % THEME_COLORS.length] : "transparent",
                   }}
                 />

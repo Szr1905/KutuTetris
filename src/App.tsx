@@ -4,9 +4,6 @@ import GameScreen from "./components/GameScreen";
 import MoreGamesScreen from "./components/MoreGamesScreen";
 import TicTacToeScreen from "./components/games/TicTacToeScreen";
 import WaterSortScreen from "./components/games/WaterSortScreen";
-import OnetScreen from "./components/games/OnetScreen";
-import SudokuScreen from "./components/games/SudokuScreen";
-import BlockSlideScreen from "./components/games/BlockSlideScreen";
 import ChessScreen from "./components/games/ChessScreen";
 import Game2048Screen from "./components/games/Game2048Screen";
 import MinesweeperScreen from "./components/games/MinesweeperScreen";
@@ -14,8 +11,6 @@ import WordleScreen from "./components/games/WordleScreen";
 import SnakeScreen from "./components/games/SnakeScreen";
 import MemoryMatchScreen from "./components/games/MemoryMatchScreen";
 import IntroScreen from "./components/IntroScreen";
-import AdventureScreen from "./components/AdventureScreen";
-import BadgesScreen from "./components/BadgesScreen";
 import { getTheme, THEMES } from "./lib/themes";
 import {
   getProfile,
@@ -24,7 +19,7 @@ import {
   type PlayerProfile,
 } from "./lib/supabase";
 
-type Screen = "menu" | "game" | "adventure" | "badges" | "leaderboard" | "more-games" | "tic-tac-toe" | "water-sort" | "onet" | "sudoku" | "block-slide" | "chess" | "game-2048" | "minesweeper" | "wordle" | "snake" | "memory-match";
+type Screen = "menu" | "game" | "adventure" | "badges" | "leaderboard" | "more-games" | "tic-tac-toe" | "water-sort" | "chess" | "game-2048" | "minesweeper" | "wordle" | "snake" | "memory-match";
 type Language = "tr" | "en";
 
 const getLocalBestScore = () => {
@@ -390,30 +385,6 @@ export default function App() {
 
       {screen === "water-sort" && (
         <WaterSortScreen
-          theme={currentTheme}
-          onBack={() => setScreen("more-games")}
-          onScore={handleMiniGameScore}
-        />
-      )}
-
-      {screen === "onet" && (
-        <OnetScreen
-          theme={currentTheme}
-          onBack={() => setScreen("more-games")}
-          onScore={handleMiniGameScore}
-        />
-      )}
-
-      {screen === "sudoku" && (
-        <SudokuScreen
-          theme={currentTheme}
-          onBack={() => setScreen("more-games")}
-          onScore={handleMiniGameScore}
-        />
-      )}
-
-      {screen === "block-slide" && (
-        <BlockSlideScreen
           theme={currentTheme}
           onBack={() => setScreen("more-games")}
           onScore={handleMiniGameScore}
