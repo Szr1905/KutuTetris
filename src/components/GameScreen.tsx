@@ -324,18 +324,32 @@ export default function GameScreen({
 
   const audioCtxRef = useRef<AudioContext | null>(null);
   const audioBuffersRef = useRef<Record<string, AudioBuffer>>({});
+  const preloadedAudiosRef = useRef<Record<string, HTMLAudioElement>>({});
 
   useEffect(() => {
     const soundFiles = [
       "yeni_baslangic.mp3",
-      "gameover.mp3",
-      "5bolumgameover.mp3",
-      "3blok.mp3",
-      "yeni_victory.mp3",
-      "yeni_woov.mp3",
       "cekme.ogg",
-      "birakma.ogg"
+      "birakma.ogg",
+      "geribirakma.ogg",
+      "Gameover.ogg",
+      "Satir.ogg",
+      "sutun.ogg",
+      "satir-sutun.ogg",
+      "bolum.ogg",
+      "combo1.ogg",
+      "combo2.ogg",
+      "combo3.ogg",
+      "combo4.ogg"
     ];
+
+    const audioMap: Record<string, HTMLAudioElement> = {};
+    soundFiles.forEach((file) => {
+      const audio = new Audio(`/${file}`);
+      audio.load();
+      audioMap[file] = audio;
+    });
+    preloadedAudiosRef.current = audioMap;
 
     const initWebAudio = async () => {
       try {
@@ -384,12 +398,19 @@ export default function GameScreen({
           return;
         }
       }
+      const preloaded = preloadedAudiosRef.current[filename];
+      if (preloaded) {
+        const clone = preloaded.cloneNode() as HTMLAudioElement;
+        clone.volume = 1.0;
+        clone.play().catch(() => {});
+        return;
+      }
       const audio = new Audio(`/${filename}`);
       audio.play().catch(() => {});
     } catch {}
   }, [soundEnabled]);
 
-  const playSynthSound = useCallback((type: "grab" | "place" | "clear_1" | "clear_2" | "clear_3" | "clear_4" | "clear_5" | "combo_lively" | "warning" | "lively" | "start_fanfare" | "levelup_fanfare", level: number = 0) => {
+  const playSynthSound = useCallback((type: "warning", _level: number = 0) => {
     if (!soundEnabled) return;
     try {
       if (!audioCtxRef.current) {
@@ -402,83 +423,25 @@ export default function GameScreen({
       }
 
       const now = ctx.currentTime;
-
-      const playTone = (freq: number, startTime: number, duration: number, type: OscillatorType = "sine", vol: number = 0.2, pitchSlide?: number) => {
+      const playTone = (freq: number, startTime: number, duration: number, type: OscillatorType = "sine", vol: number = 0.2) => {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
-        
         osc.type = type;
         osc.frequency.setValueAtTime(freq, startTime);
-        if (pitchSlide) {
-          osc.frequency.exponentialRampToValueAtTime(pitchSlide, startTime + duration);
-        }
-
         gain.gain.setValueAtTime(0, startTime);
         gain.gain.linearRampToValueAtTime(vol, startTime + 0.015);
         gain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
-
         osc.connect(gain);
         gain.connect(ctx.destination);
-
         osc.start(startTime);
         osc.stop(startTime + duration);
       };
 
-      if (type === "levelup_fanfare") {
-        const notes = [261.63, 329.63, 392.00, 523.25, 659.25, 783.99];
-        notes.forEach((freq, idx) => {
-          playTone(freq, now + idx * 0.08, 0.3, "triangle", 0.25);
-        });
-      } else if (type === "start_fanfare") {
-        const notes = [523.25, 659.25, 783.99, 1046.50];
-        notes.forEach((freq, idx) => {
-          playTone(freq, now + idx * 0.05, 0.25, "sine", 0.2);
-        });
-      } else if (type === "grab") {
-        playTone(420, now, 0.06, "sine", 0.25, 880);
-      } else if (type === "place") {
-        playTone(750, now, 0.05, "sine", 0.25, 220);
-      } else if (type === "warning") {
+      if (type === "warning") {
         const notes = [440, 554.37];
         notes.forEach((freq, idx) => {
           playTone(freq, now + idx * 0.12, 0.15, "sine", 0.15);
         });
-      } else if (type === "clear_1") {
-        playTone(1318.51, now, 0.18, "sine", 0.25);
-        playTone(1760.00, now + 0.05, 0.2, "sine", 0.25);
-      } else if (type === "clear_2") {
-        const freqs = [1046.50, 1318.51, 1567.98, 2093.00];
-        freqs.forEach((freq, idx) => {
-          playTone(freq, now + idx * 0.04, 0.2, "sine", 0.2);
-        });
-      } else if (type === "clear_3") {
-        const freqs = [1046.50, 1318.51, 1567.98, 2093.00];
-        freqs.forEach((freq, idx) => {
-          playTone(freq, now + idx * 0.04, 0.2, "sine", 0.22);
-        });
-      } else if (type === "clear_4" || type === "clear_5") {
-        const freqs = [523.25, 659.25, 783.99, 1046.50, 1318.51, 1567.98];
-        freqs.forEach((freq, idx) => {
-          playTone(freq, now + idx * 0.035, 0.25, "sine", 0.2);
-        });
-      } else if (type === "combo_lively") {
-        const comboStep = Math.min(level, 6);
-        if (comboStep <= 1) {
-          playTone(523.25, now, 0.18, "sine", 0.25, 660);
-        } else if (comboStep === 2) {
-          playTone(659.25, now, 0.15, "triangle", 0.28, 880);
-          playTone(783.99, now + 0.04, 0.16, "sine", 0.24, 1046.50);
-        } else if (comboStep === 3) {
-          [523.25, 659.25, 783.99].forEach((f, i) => {
-            playTone(f, now + i * 0.04, 0.2, "triangle", 0.26, f * 1.4);
-          });
-        } else {
-          [523.25, 659.25, 783.99, 1046.50, 1318.51].forEach((f, i) => {
-            playTone(f, now + i * 0.03, 0.24, "sine", 0.3, f * 1.5);
-          });
-        }
-      } else if (type === "lively") {
-        playTone(600, now, 0.12, "sine", 0.2, 1400);
       }
     } catch {}
   }, [soundEnabled]);
@@ -495,60 +458,49 @@ export default function GameScreen({
         | "grab"
         | "levelup"
         | "perfectclear"
-        | "warning",
+        | "warning"
+        | "cancel"
+        | "row"
+        | "col"
+        | "row_col",
       comboLevel: number = 0,
-      linesCleared: number = 0,
+      _linesCleared: number = 0,
     ) => {
       if (!soundEnabled) return;
 
-      if (type === "levelup") {
-        playAudioFile("yeni_victory.mp3");
-        playSynthSound("levelup_fanfare");
-      } else if (type === "perfectclear") {
-        playAudioFile("yeni_victory.mp3");
-        playSynthSound("clear_5");
+      if (type === "levelup" || type === "perfectclear") {
+        playAudioFile("bolum.ogg");
       } else if (type === "start") {
         playAudioFile("yeni_baslangic.mp3");
-        playSynthSound("start_fanfare");
       } else if (type === "gameover") {
-        if (gameDifficulty >= 5) {
-          playAudioFile("5bolumgameover.mp3");
-        } else {
-          playAudioFile("gameover.mp3");
-        }
+        playAudioFile("Gameover.ogg");
       } else if (type === "grab") {
-        playSynthSound("grab");
+        playAudioFile("cekme.ogg");
       } else if (type === "place") {
-        playSynthSound("place");
+        playAudioFile("birakma.ogg");
+      } else if (type === "cancel") {
+        playAudioFile("geribirakma.ogg");
       } else if (type === "warning") {
         playSynthSound("warning");
-      } else if (type === "clear" || type === "multi" || type === "combo") {
-        if (comboLevel >= 1) {
-          playSynthSound("combo_lively", comboLevel);
-        }
-
-        if (linesCleared >= 5) {
-          playSynthSound("clear_5");
-        } else if (linesCleared === 4) {
-          playSynthSound("clear_4");
-        } else if (linesCleared === 3) {
-          playSynthSound("clear_3");
-        } else if (linesCleared === 2) {
-          playSynthSound("clear_2");
-        } else if (linesCleared === 1) {
-          playSynthSound("clear_1");
-        }
-      }
-
-      if (linesCleared > 0 && Math.random() < 0.25) {
-        if (Math.random() < 0.5) {
-          playAudioFile("yeni_woov.mp3");
-        } else {
-          playSynthSound("lively");
+      } else if (type === "row") {
+        playAudioFile("Satir.ogg");
+      } else if (type === "col") {
+        playAudioFile("sutun.ogg");
+      } else if (type === "row_col") {
+        playAudioFile("satir-sutun.ogg");
+      } else if (type === "combo" || type === "clear" || type === "multi") {
+        if (comboLevel === 1) {
+          playAudioFile("combo1.ogg");
+        } else if (comboLevel === 2) {
+          playAudioFile("combo2.ogg");
+        } else if (comboLevel === 3) {
+          playAudioFile("combo3.ogg");
+        } else if (comboLevel >= 4) {
+          playAudioFile("combo4.ogg");
         }
       }
     },
-    [soundEnabled, playAudioFile, playSynthSound, gameDifficulty]
+    [soundEnabled, playAudioFile, playSynthSound]
   );
 
   const playSoundRef = useRef(playSound);
@@ -924,14 +876,18 @@ export default function GameScreen({
           setTimeout(() => setComboText(null), 850);
         }
 
-        if (totalLines >= 3) {
-          playSound("multi", newCombo, totalLines);
-        } else if (totalLines === 2) {
-          playSound("clear", newCombo, totalLines);
-        } else if (newCombo > 0) {
-          playSound("combo", newCombo, totalLines);
+        if (clearedRows.length > 0 && clearedCols.length > 0) {
+          playSound("row_col", newCombo, totalLines);
+        } else if (clearedRows.length > 0) {
+          playSound("row", newCombo, totalLines);
+        } else if (clearedCols.length > 0) {
+          playSound("col", newCombo, totalLines);
         } else {
           playSound("clear", newCombo, totalLines);
+        }
+
+        if (newCombo >= 1) {
+          playSound("combo", newCombo, totalLines);
         }
 
         if (isBoardEmpty) {
@@ -1207,6 +1163,8 @@ export default function GameScreen({
         snap.row,
         snap.col
       );
+    } else {
+      playSound("cancel");
     }
 
     setDrag(null);
@@ -1579,7 +1537,7 @@ export default function GameScreen({
         </button>
       </div>
 
-      {/* Oyun Tahtası Çerçevesi (İç Padding ile Blokların Yuvarlatılmış Köşelerden Taşması Engellendi) */}
+      {/* Oyun Tahtası Çerçevesi */}
       <div
         style={{
           background: "rgba(10, 20, 40, 0.6)",
@@ -1644,7 +1602,6 @@ export default function GameScreen({
             touchAction: "none",
           }}
         >
-          {/* Masayı Kaplayan Seviye Geçiş Ekranı Overlay */}
           {isLevelTransitioning && (
             <div
               style={{
